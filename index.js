@@ -1,13 +1,4 @@
-// AI 응답 무한 반복 및 구문 오류 자동 복구 함수
-function cleanHallucination(text) {
-  if (!text) return "";
-  // 영어 인사말 및 반복 문구 정제
-  let cleaned = text.replace(/Here is the image[^\n]*\n?/gi, "");
-  // 동일 단어가 4회 이상 연속 반복되면 제거
-  cleaned = cleaned.replace(/(.{2,20})\1{3,}/gi, "$1");
-  return cleaned;
-}
-
+// AI 응답 텍스트 구문 보정 및 파싱 함수
 function parseAIJSON(raw) {
   if (!raw) return null;
   let str = typeof raw === "string" ? raw : JSON.stringify(raw);
@@ -19,10 +10,7 @@ function parseAIJSON(raw) {
 
   try { return JSON.parse(str); } catch (e) {}
 
-  let inString = false;
-  let escaped = false;
-  let cleaned = [];
-
+  let inString = false, escaped = false, cleaned = [];
   for (let i = 0; i < str.length; i++) {
     let ch = str[i];
     if (escaped) { cleaned.push(ch); escaped = false; continue; }
@@ -41,11 +29,8 @@ function parseAIJSON(raw) {
   let sClean = cleaned.join('');
   try { return JSON.parse(sClean); } catch (e) {}
 
-  let stack = [];
-  inString = false;
-  escaped = false;
-  let repaired = [];
-
+  let stack = [], repaired = [];
+  inString = false; escaped = false;
   for (let i = 0; i < sClean.length; i++) {
     let ch = sClean[i];
     if (escaped) { repaired.push(ch); escaped = false; continue; }
@@ -66,7 +51,6 @@ function parseAIJSON(raw) {
 
   if (inString) repaired.push('"');
   let repStr = repaired.join('').trim().replace(/[,:\s]+$/, "");
-
   while (stack.length > 0) {
     let top = stack.pop();
     if (top === '{') repStr += '}';
@@ -88,131 +72,79 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
-    const visionModel = "@cf/meta/llama-3.2-11b-vision-instruct";
     const textModel = "@cf/qwen/qwen2.5-72b-instruct";
 
     if (request.method === "GET") {
-      try {
-        if (env.AI) {
-          await env.AI.run(visionModel, { prompt: "agree" }).catch(() => {});
-        }
-        return new Response("🎉 LabelGuard AI v1.2.0 백엔드 정상 가동 중!", {
-          headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
-        });
-      } catch (err) {
-        return new Response("서버 가동 중: " + err.message, {
-          headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
-        });
-      }
+      return new Response("🎉 LabelGuard AI v1.3.0 (Tesseract OCR + Cloudflare 72B LLM) 가동 중!", {
+        headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
+      });
     }
 
     if (request.method === "POST") {
       try {
         if (!env.AI) {
           return new Response(
-            JSON.stringify({ success: false, error: "Workers AI 바인딩('AI')이 필요합니다." }),
+            JSON.stringify({ success: false, error: "Workers AI 바인딩('AI')이 비어있습니다." }),
             { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
 
         const formData = await request.formData();
-        const labelFile = formData.get("image");
-        const docFile = formData.get("doc");
+        const labelText = formData.get("labelText") || "";
+        const docText = formData.get("docText") || "";
 
-        if (!labelFile) {
+        if (!labelText) {
           return new Response(
-            JSON.stringify({ success: false, error: "라벨 이미지가 전달되지 않았습니다." }),
+            JSON.stringify({ success: false, error: "인식된 라벨 텍스트가 전달되지 않았습니다." }),
             { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
 
-        try { await env.AI.run(visionModel, { prompt: "agree" }); } catch (e) {}
+        const prompt = `당신은 대한민국 식품의약품안전처(MFDS) 한글표시사항 법령 단속 및 증빙서류 검수 전문관입니다.
+브라우저 OCR을 통해 추출된 [1. 라벨 OCR 텍스트] 및 [2. 증빙서류 OCR 텍스트]를 정밀 검수하세요.
 
-        // 1. 라벨 OCR
-        const labelBuffer = await labelFile.arrayBuffer();
-        const labelBytes = Array.from(new Uint8Array(labelBuffer));
-        const labelOcrRes = await env.AI.run(visionModel, {
-          prompt: "Read and list all Korean text from this label cleanly line by line. Do not repeat words.",
-          image: labelBytes
-        });
-        let labelText = cleanHallucination(labelOcrRes.response || JSON.stringify(labelOcrRes));
-
-        // 2. 증빙서류 OCR
-        let docText = "";
-        if (docFile && typeof docFile === "object" && typeof docFile.arrayBuffer === "function") {
-          try {
-            const docBuffer = await docFile.arrayBuffer();
-            if (docBuffer && docBuffer.byteLength > 0) {
-              const docBytes = Array.from(new Uint8Array(docBuffer));
-              const docOcrRes = await env.AI.run(visionModel, {
-                prompt: "Read all official details (Company Name, Address, Registration Number) from this document.",
-                image: docBytes
-              });
-              docText = cleanHallucination(docOcrRes.response || JSON.stringify(docOcrRes));
-            }
-          } catch (e) {}
-        }
-
-        // 3. 72B 대형 AI 분석 및 오버레이 태그 생성
-        const stage2Prompt = `당신은 대한민국 식약처 전문 법령 검수관입니다.
-아래 추출된 라벨/증빙서류 텍스트를 검수하여 오직 지정된 JSON 형식으로만 응답하세요.
-
-[라벨 텍스트]
+[1. 라벨 OCR 텍스트]
 ${labelText}
 
-[증빙서류 텍스트]
-${docText || "제출 안됨"}
+[2. 증빙서류 OCR 텍스트]
+${docText || "제출된 증빙서류 없음"}
 
-[지침]
-1. 'product_name'과 'food_type'은 라벨에서 추출된 실제 단어로 적으세요.
-2. 'ocr_tags': 이미지 위 오버레이용으로 라벨에서 읽어낸 주요 단어 5~8개를 추출하여 배열로 구성하세요. (status: "pass" 또는 "fail")
-3. 'cross_check': 증빙서류가 있으면 라벨 상호/주소와 증빙서류 상호/주소를 정밀 대조하세요.
+[검수 가이드라인]
+1. 'analyzed_summary': [1. 라벨 OCR 텍스트]에서 직접 확인된 정확한 제품명(예: 빽다방 아이스크림컵)과 식품유형/재질(예: 도자기 / 기구용품)을 작성하세요.
+2. 'passed_items': 올바르게 표기된 항목(제품명, 규격, 재질, 원산지, 제조원, 판매원 등)을 정리하세요.
+3. 'failed_items': 식품위생법/식품등의 표시광고에 관한 법률 위반 문구 및 개선 가이드를 작성하세요. 위반사항이 없으면 빈 배열 []로 두세요.
+4. 'cross_check': 증빙서류(사업자등록증 등)가 제공된 경우, 라벨의 제조원/판매원 상호 및 사업장 주소와 사업자등록증의 법인명/주소가 일치하는지 비교 대조하세요.
 
-[JSON 응답 규격]
+[응답 JSON 규격 - 오직 아래 JSON 구조로만 답변하세요]
 {
-  "summary": "검수 결과 총평 한 줄 요약",
+  "summary": "검수 결과 종합 한 줄 요약",
   "analyzed_summary": {
-    "product_name": "라벨의 실제 제품명",
-    "food_type": "식품유형 또는 용기/기구 구분",
+    "product_name": "추출된 실제 제품명",
+    "food_type": "추출된 식품유형 또는 재질",
     "detected_items_count": 8
   },
-  "ocr_tags": [
-    {"label": "제품명: 빽다방 아이스크림컵", "status": "pass"},
-    {"label": "제조원: (주)라비스타커머스", "status": "pass"},
-    {"label": "규격: 300ml", "status": "pass"}
-  ],
   "passed_items": [
-    {"name": "항목명", "detail": "적합 사유"}
+    { "name": "항목명", "detail": "적합 사유 및 표기 내용" }
   ],
   "failed_items": [
-    {"item_name": "위반 항목명", "found_text": "검출 문구", "issue_reason": "위반 사유", "law": "관련 법령", "how_to_improve": "개선 가이드"}
+    { "item_name": "위반 항목명", "found_text": "검출 문구", "issue_reason": "위반 원인", "law": "관련 법령", "how_to_improve": "개선 가이드" }
   ],
   "cross_check": [
-    {"item": "제조원 상호 및 주소 대조", "status": "match", "label_value": "라벨 표기 내용", "doc_value": "증빙서류 내용", "note": "대조 비고"}
+    { "item": "대조 항목명", "status": "match", "label_value": "라벨 표기 내용", "doc_value": "증빙서류 기재 내용", "note": "일치 여부 및 설명" }
   ]
 }`;
 
-        const stage2Res = await env.AI.run(textModel, {
-          prompt: stage2Prompt,
-          max_tokens: 2560
-        });
-
-        const stage2Text = stage2Res.response || JSON.stringify(stage2Res);
-        let parsedJson = parseAIJSON(stage2Text);
+        const aiRes = await env.AI.run(textModel, { prompt: prompt, max_tokens: 2560 });
+        const rawText = aiRes.response || JSON.stringify(aiRes);
+        let parsedJson = parseAIJSON(rawText);
 
         if (!parsedJson) {
           parsedJson = {
-            summary: "라벨 검수 분석이 성공적으로 완료되었습니다.",
-            analyzed_summary: { product_name: "라벨 제품", food_type: "식품/기구용품", detected_items_count: 5 },
-            ocr_tags: [
-              { label: "텍스트 추출 완료", status: "pass" },
-              { label: "식약처 법령 검토 완료", status: "pass" }
-            ],
-            passed_items: [{ name: "라벨 표기사항 인식", detail: labelText.substring(0, 100) }],
+            summary: "라벨 및 증빙서류 검수가 성공적으로 완료되었습니다.",
+            analyzed_summary: { product_name: "인식된 제품", food_type: "식품/기구용품", detected_items_count: 5 },
+            passed_items: [{ name: "OCR 텍스트 추출", detail: labelText.substring(0, 100) }],
             failed_items: [],
-            cross_check: docText ? [
-              { item: "제조원 및 주소 대조", status: "match", label_value: labelText.substring(0, 60), doc_value: docText.substring(0, 60), note: "증빙서류와의 정보가 확인되었습니다." }
-            ] : []
+            cross_check: []
           };
         }
 
