@@ -65,15 +65,16 @@ export default {
 `;
         }
 
-        const prompt = `당신은 대한민국 식약처(MFDS) 한글표시사항 및 품목제조보고서 검수관입니다.
-라벨 이미지와 제출된 증빙서류를 대조 검수하세요.
+        const prompt = `You are a Korean Food Safety Authority (MFDS) inspector.
+Analyze the images and respond ONLY with a valid JSON object.
+CRITICAL RULE: DO NOT write any intro, greetings, or commentary like "위 이미지의..." or "Here is...". Start immediately with '{' and end with '}'.
 
 ${docCheckPrompt}
 
-[중요: 마크다운 헤더(###)나 기타 인사말을 절대 포함하지 말고, 오직 아래 JSON 형식으로만 답변하세요.]
+[REQUIRED JSON SCHEMA]
 {
   "is_compliant": false,
-  "summary": "법령 및 증빙서류 교차 검수 종합 결과 한 줄 요약",
+  "summary": "식약처 법령 및 증빙서류 검수 결과 한 줄 요약",
   "required_fields": [
     {"name": "제품명", "status": "pass"},
     {"name": "식품유형", "status": "pass"},
@@ -88,8 +89,8 @@ ${docCheckPrompt}
   "violations": [
     {
       "word": "검출된 표시·광고 위반 문구",
-      "issue": "법령 위반 사유 및 오인 가능성",
-      "law": "식품등의 표시·광고에 관한 법률 제8조",
+      "issue": "위반 원인 및 오인 가능성",
+      "law": "관련 법령 조항",
       "guide": "식약처 권장 수정안"
     }
   ],
@@ -112,18 +113,39 @@ ${docCheckPrompt}
         });
 
         let rawText = aiResponse.response || aiResponse;
+        if (typeof rawText !== "string") {
+          rawText = JSON.stringify(rawText);
+        }
 
-        // 텍스트에서 JSON 부분만 안전하게 정제 추출하는 로직
-        if (typeof rawText === "string") {
-          rawText = rawText.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
-          const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+        // 백엔드 자체 JSON 정제 및 안전 예외 처리 (Fallback)
+        let finalJsonObj = null;
+        try {
+          let cleanStr = rawText.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+          const jsonMatch = cleanStr.match(/\{[\s\S]*\}/);
           if (jsonMatch) {
-            rawText = jsonMatch[0];
+            cleanStr = jsonMatch[0];
           }
+          finalJsonObj = JSON.parse(cleanStr);
+        } catch (parseError) {
+          // AI가 서론 텍스트를 출력해 JSON 파싱이 실패했을 때의 안전 구조 생성
+          finalJsonObj = {
+            is_compliant: false,
+            summary: "AI 분석 결과가 텍스트 형태로 수신되어 리포트로 정리되었습니다.",
+            required_fields: [],
+            violations: [
+              {
+                word: "AI 분석 텍스트 원문",
+                issue: rawText,
+                law: "식품등의 표시·광고에 관한 법률",
+                guide: "상세 분석 내용을 위 설명글에서 확인해 주세요."
+              }
+            ],
+            cross_check: []
+          };
         }
 
         return new Response(
-          JSON.stringify({ success: true, result: rawText }),
+          JSON.stringify({ success: true, result: finalJsonObj }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
 
