@@ -72,11 +72,12 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
+    // Cloudflare 공식 지원 검증된 모델 사용
     const visionModel = "@cf/meta/llama-3.2-11b-vision-instruct";
-    const textModel = "@cf/qwen/qwen2.5-72b-instruct";
+    const textModel = "@cf/meta/llama-3.1-70b-instruct";
 
     if (request.method === "GET") {
-      return new Response("🎉 LabelGuard AI v1.4.0 백엔드가 정상 가동 중입니다!", {
+      return new Response("🎉 LabelGuard AI v1.5.0 백엔드가 정상 가동 중입니다!", {
         headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
       });
     }
@@ -105,7 +106,7 @@ export default {
 
         try { await env.AI.run(visionModel, { prompt: "agree" }); } catch (e) {}
 
-        // Fallback: labelText가 없거나 너무 짧은 경우 Vision AI로 백엔드 OCR 실행
+        // Fallback 1: Vision AI 라벨 OCR
         if ((!labelText || labelText.trim().length < 5) && labelFile && typeof labelFile === "object") {
           try {
             const labelBuffer = await labelFile.arrayBuffer();
@@ -118,7 +119,7 @@ export default {
           } catch (e) {}
         }
 
-        // Fallback: docText가 없으면 Vision AI로 증빙서류 OCR 실행
+        // Fallback 2: Vision AI 증빙서류 OCR
         if ((!docText || docText.trim().length < 5) && docFile && typeof docFile === "object" && docFile.arrayBuffer) {
           try {
             const docBuffer = await docFile.arrayBuffer();
@@ -133,7 +134,7 @@ export default {
           } catch (e) {}
         }
 
-        // 72B 대형 AI 분석
+        // Llama 3.1 70B AI 분석
         const prompt = `당신은 대한민국 식품의약품안전처(MFDS) 한글표시사항 법령 단속 및 증빙서류 검수 전문관입니다.
 [1. 라벨 OCR 텍스트] 및 [2. 증빙서류 OCR 텍스트]를 정밀 검수하세요.
 
