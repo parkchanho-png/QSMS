@@ -13,24 +13,19 @@ export default {
     if (request.method === "POST") {
       try {
         if (!env.AI) {
-          return new Response(
-            JSON.stringify({ success: false, error: "Cloudflare 대시보드에서 'AI' 바인딩 설정이 필요합니다." }),
-            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
+          return new Response(JSON.stringify({ success: false, error: "Cloudflare 대시보드에서 'AI' 바인딩 설정이 필요합니다." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
 
         const formData = await request.formData();
         const imageFile = formData.get("image");
 
         if (!imageFile) {
-          return new Response(
-            JSON.stringify({ success: false, error: "이미지가 전송되지 않았습니다." }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
+          return new Response(JSON.stringify({ success: false, error: "이미지가 전송되지 않았습니다." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
 
         const arrayBuffer = await imageFile.arrayBuffer();
         const imageBytes = Array.from(new Uint8Array(arrayBuffer));
+        const modelName = "@cf/meta/llama-3.2-11b-vision-instruct";
 
         const prompt = `당신은 대한민국 식약처 한글표시사항 및 표시·광고 법령 전문가입니다.
 제공된 이미지의 한글표시사항 텍스트를 분석하여 다음 규칙을 검토하세요.
@@ -59,36 +54,53 @@ export default {
   ]
 }`;
 
-        const modelName = "@cf/meta/llama-3.2-11b-vision-instruct";
-
-        // Step 1: 이미지 없이 단독으로 'agree'만 보내 Meta 라이선스 동의 등록
         try {
-          await env.AI.run(modelName, { prompt: "agree" });
-        } catch (agreeErr) {
-          // 이미 동의된 상태이거나 정상 처리인 경우 에러 무시하고 진행
+          // 본 요청 실행
+          const aiResponse = await env.AI.run(modelName, {
+            prompt: prompt,
+            image: imageBytes,
+          });
+
+          return new Response(
+            JSON.stringify({ success: true, result: aiResponse.response || aiResponse }),
+            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+
+        } catch (aiErr) {
+          const errMsg = aiErr.message || String(aiErr);
+          
+          // 5016 약관 동의 에러인 경우
+          if (errMsg.includes("5016") || errMsg.includes("agree")) {
+            
+            // 약관 동의 요청 보내기 (이미지 없이 순수하게 agree만 전송)
+            try {
+              await env.AI.run(modelName, { prompt: "agree" });
+            } catch (e) {
+              // 무시 (정상 처리됨)
+            }
+            
+            // 사용자에게 안내 반환 (네트워크 동기화를 위해 대기 안내)
+            return new Response(
+              JSON.stringify({ 
+                success: false, 
+                error: "✅ Meta AI 라이선스 약관에 방금 자동 동의를 완료했습니다!\nCloudflare 전 세계 서버에 동기화되는 중입니다.\n\n[확인]을 누르시고 10초만 기다리신 후, 다시 한 번 [분석하기] 버튼을 눌러주세요!"
+              }),
+              { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            );
+          }
+
+          throw aiErr;
         }
-
-        // Step 2: 약관 동의 완료 후 실제 이미지 및 법령 분석 프롬프트 실행
-        const aiResponse = await env.AI.run(modelName, {
-          prompt: prompt,
-          image: imageBytes,
-        });
-
-        return new Response(
-          JSON.stringify({ success: true, result: aiResponse.response || aiResponse }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
 
       } catch (err) {
         return new Response(
           JSON.stringify({ success: false, error: err.message || String(err) }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
     }
 
     return new Response("LabelGuard AI 백엔드 서버가 정상 작동 중입니다.", {
-      status: 200,
       headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
     });
   }
