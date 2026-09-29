@@ -60,7 +60,7 @@
                 <i data-lucide="image-plus" class="w-6 h-6"></i>
               </div>
               <p class="text-sm font-semibold text-slate-700">클릭하거나 이미지를 드래그하세요</p>
-              <p class="text-xs text-slate-400">PNG, JPG, WEBP (자동 최적화 전송)</p>
+              <p class="text-xs text-slate-400">PNG, JPG, WEBP (최대 10MB)</p>
             </div>
 
             <!-- Preview Image -->
@@ -111,7 +111,7 @@
             <div class="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
             <div class="space-y-1">
               <p class="text-sm font-bold text-slate-800">Vision AI가 이미지를 분석 중입니다...</p>
-              <p class="text-xs text-slate-500">이미지 자동 최적화 및 법령 기준 검토 진행 중</p>
+              <p class="text-xs text-slate-500">국가법령정보센터 기준 검토 진행 중</p>
             </div>
           </div>
 
@@ -210,8 +210,7 @@
       resultDashboard.classList.add('hidden');
     });
 
-    // 이미지를 AI 가독성에 최적화된 용량으로 자동 리사이징/압축하는 함수
-    function compressImage(file, maxWidth = 1024) {
+    function compressImage(file, maxWidth = 800) {
       return new Promise((resolve, reject) => {
         const image = new Image();
         image.src = URL.createObjectURL(file);
@@ -236,7 +235,7 @@
             } else {
               reject(new Error('이미지 압축에 실패했습니다.'));
             }
-          }, 'image/jpeg', 0.85);
+          }, 'image/jpeg', 0.8);
         };
         image.onerror = (err) => reject(err);
       });
@@ -251,8 +250,7 @@
       analyzeBtn.disabled = true;
 
       try {
-        // 고용량 사진을 서버 제한에 맞게 자동으로 최적화 압축
-        const compressedFile = await compressImage(selectedFile, 1024);
+        const compressedFile = await compressImage(selectedFile, 800);
 
         const formData = new FormData();
         formData.append('image', compressedFile);
@@ -262,7 +260,15 @@
           body: formData
         });
 
-        const data = await response.json();
+        // 텍스트 형태로 우선 읽어서 JSON 변환 실패 시 명확한 메시지 출력
+        const rawText = await response.text();
+        let data;
+        try {
+          data = JSON.parse(rawText);
+        } catch (e) {
+          alert(`서버 응답 오류 (${response.status}):\n${rawText || '서버가 응답하지 않았습니다.'}`);
+          return;
+        }
 
         if (data.success && data.result) {
           let parsed;
@@ -273,11 +279,11 @@
           }
           renderRealResults(parsed);
         } else {
-          alert(`분석 실패: ${data.error || '백엔드 처리 오류가 발생했습니다.'}`);
+          alert(`분석 실패: ${data.error || '알 수 없는 서버 오류가 발생했습니다.'}`);
         }
       } catch (err) {
         console.error(err);
-        alert(`통신 오류 상세 내용: ${err.message}`);
+        alert(`통신 에러: ${err.message}`);
       } finally {
         loadingState.classList.add('hidden');
         resultDashboard.classList.remove('hidden');
