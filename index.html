@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LabelGuard - 식약처 표시사항 & 증빙 대조 정밀 리포트</title>
+  <title>LabelGuard AI - 식약처 법령 검수 v1.2.0</title>
   <style>
     :root {
       --primary: #2563eb;
@@ -19,23 +19,16 @@
     }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background-color: var(--bg);
       color: var(--text);
       margin: 0;
-      padding: 30px 16px;
+      padding: 24px 16px;
     }
 
-    .container {
-      max-width: 960px;
-      margin: 0 auto;
-    }
+    .container { max-width: 1200px; margin: 0 auto; }
 
-    .header {
-      text-align: center;
-      margin-bottom: 24px;
-    }
-
+    .header { text-align: center; margin-bottom: 24px; }
     .header h1 {
       font-size: 2.2rem;
       color: var(--primary);
@@ -48,20 +41,18 @@
 
     .version-badge {
       font-size: 0.85rem;
-      background-color: #e2e8f0;
-      color: #475569;
-      padding: 4px 10px;
+      background-color: #3b82f6;
+      color: white;
+      padding: 3px 10px;
       border-radius: 20px;
       font-weight: 600;
-      letter-spacing: 0.5px;
-      border: 1px solid #cbd5e1;
     }
 
     .card {
       background: var(--card-bg);
       border-radius: 12px;
-      padding: 24px;
-      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+      padding: 20px;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
       border: 1px solid var(--border);
       margin-bottom: 24px;
     }
@@ -70,30 +61,21 @@
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 16px;
-      margin-bottom: 20px;
+      margin-bottom: 16px;
     }
 
-    @media (max-width: 640px) {
-      .upload-grid { grid-template-columns: 1fr; }
-    }
+    @media (max-width: 640px) { .upload-grid { grid-template-columns: 1fr; } }
 
     .upload-box {
       border: 2px dashed #94a3b8;
       border-radius: 8px;
-      padding: 20px;
+      padding: 16px;
       text-align: center;
       background: #f1f5f9;
     }
 
-    .upload-box h3 {
-      font-size: 1rem;
-      margin: 0 0 8px 0;
-      color: #334155;
-    }
-
-    input[type="file"] {
-      width: 100%;
-    }
+    .upload-box h3 { font-size: 1rem; margin: 0 0 8px 0; color: #334155; }
+    input[type="file"] { width: 100%; }
 
     .btn {
       width: 100%;
@@ -107,7 +89,6 @@
       cursor: pointer;
       transition: background 0.2s;
     }
-
     .btn:hover { background: var(--primary-hover); }
 
     .loading {
@@ -119,49 +100,129 @@
       color: var(--primary);
     }
 
-    .result-section { display: none; }
+    /* 2분할 스플릿 레이아웃 */
+    .result-split-view {
+      display: none;
+      grid-template-columns: 1fr 1.2fr;
+      gap: 20px;
+      align-items: start;
+    }
 
+    @media (max-width: 900px) {
+      .result-split-view { grid-template-columns: 1fr; }
+    }
+
+    /* 좌측 이미지 및 오버레이 관제소 */
+    .image-pane { position: sticky; top: 20px; }
+
+    .overlay-controls {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .btn-toggle-overlay {
+      flex: 1;
+      background: #0f172a;
+      color: white;
+      border: none;
+      padding: 10px;
+      border-radius: 6px;
+      font-weight: bold;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    .btn-toggle-overlay:hover { background: #334155; }
+
+    .img-wrapper {
+      position: relative;
+      width: 100%;
+      border-radius: 8px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      background: #0f172a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 350px;
+    }
+
+    .img-wrapper img {
+      width: 100%;
+      height: auto;
+      display: block;
+      object-fit: contain;
+    }
+
+    /* 인식 네모상자 오버레이 레이어 */
+    .ocr-overlay-layer {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(2px);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow-y: auto;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+
+    .ocr-overlay-layer.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .ocr-tag-box {
+      background: rgba(37, 99, 235, 0.95);
+      color: white;
+      border: 2px solid #60a5fa;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: bold;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+
+    .ocr-tag-box.fail {
+      background: rgba(220, 38, 38, 0.95);
+      border-color: #fca5a5;
+    }
+
+    /* 우측 리포트 */
     .summary-box {
       background: var(--info-bg);
       border-left: 5px solid var(--primary);
-      padding: 16px;
+      padding: 14px;
       border-radius: 6px;
-      margin-bottom: 20px;
-      font-size: 1.05rem;
+      margin-bottom: 16px;
       font-weight: 600;
     }
 
     .overview-grid {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
-      gap: 12px;
-      margin-bottom: 20px;
+      gap: 8px;
+      margin-bottom: 16px;
     }
 
     .overview-item {
       background: #f8fafc;
       border: 1px solid var(--border);
-      padding: 12px;
-      border-radius: 8px;
+      padding: 10px;
+      border-radius: 6px;
       text-align: center;
     }
-
-    .overview-item span {
-      display: block;
-      font-size: 0.85rem;
-      color: #64748b;
-    }
-
-    .overview-item strong {
-      font-size: 1.1rem;
-      color: var(--text);
-    }
+    .overview-item span { display: block; font-size: 0.8rem; color: #64748b; }
+    .overview-item strong { font-size: 1rem; color: var(--text); }
 
     .badge {
       display: inline-block;
-      padding: 4px 10px;
+      padding: 3px 8px;
       border-radius: 12px;
-      font-size: 0.85rem;
+      font-size: 0.8rem;
       font-weight: bold;
     }
     .badge-pass { background: #dcfce7; color: #166534; }
@@ -171,40 +232,29 @@
       background: var(--danger-bg);
       border: 1px solid #fca5a5;
       border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 16px;
+      padding: 14px;
+      margin-bottom: 12px;
     }
-
-    .fail-title {
-      font-weight: bold;
-      color: var(--danger);
-      font-size: 1.05rem;
-      margin-bottom: 8px;
-    }
+    .fail-title { font-weight: bold; color: var(--danger); margin-bottom: 6px; }
 
     .improve-box {
       background: #ffffff;
       border: 1px dashed #2563eb;
-      padding: 12px;
+      padding: 10px;
       border-radius: 6px;
-      margin-top: 10px;
+      margin-top: 8px;
       color: #1e3a8a;
+      font-size: 0.9rem;
     }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 12px;
-    }
-
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
     th, td {
       border: 1px solid var(--border);
-      padding: 10px;
+      padding: 8px;
       text-align: left;
-      font-size: 0.95rem;
+      font-size: 0.88rem;
       word-break: break-word;
     }
-
     th { background: #f1f5f9; }
   </style>
 </head>
@@ -214,97 +264,134 @@
   <div class="header">
     <h1>
       🛡️ LabelGuard AI
-      <span class="version-badge">v1.1.0</span>
+      <span class="version-badge">v1.2.0</span>
     </h1>
-    <p>식약처 표시사항 법령 검수 & 증빙서류 정밀 대조 리포트</p>
+    <p>식약처 표시사항 법령 검수 & 증빙서류 정밀 대조 스플릿 관제 시스템</p>
   </div>
 
   <div class="card">
     <div class="upload-grid">
       <div class="upload-box">
         <h3>1. 라벨 / 광고 이미지 (필수)</h3>
-        <input type="file" id="labelInput" accept="image/*">
+        <input type="file" id="labelInput" accept="image/*" onchange="previewImages()">
       </div>
       <div class="upload-box">
         <h3>2. 증빙 서류 (선택)</h3>
-        <p style="font-size: 0.8rem; color: #64748b; margin: 4px 0;">사업자등록증, 품목제조보고서, 성적서 등</p>
-        <input type="file" id="docInput" accept="image/*">
+        <p style="font-size: 0.75rem; color: #64748b; margin: 2px 0;">사업자등록증, 품목제조보고서 등</p>
+        <input type="file" id="docInput" accept="image/*" onchange="previewImages()">
       </div>
     </div>
-    <button class="btn" onclick="analyzeData()">검수 및 개선가이드 생성</button>
+    <button class="btn" onclick="analyzeData()">실시간 검수 및 분석 시작</button>
   </div>
 
   <div class="loading" id="loading">
-    🔍 라벨 및 증빙서류 개별 OCR 수행 후 72B AI 법령 교차 검수 중입니다... (약 10~15초 소요)
+    🔍 2단계 AI 가동 중: 라벨 OCR 추출 및 72B 대형 AI 법령 교차 대조 중... (약 10초)
   </div>
 
-  <div class="card result-section" id="resultCard">
-    <h2 style="margin-top:0;">📋 검수 종합 리포트</h2>
-    <div class="summary-box" id="summaryText"></div>
-
-    <h3>🔍 1. 분석 개요 (어떤 것을 분석했는가)</h3>
-    <div class="overview-grid">
-      <div class="overview-item">
-        <span>추출된 제품명</span>
-        <strong id="infoProduct">-</strong>
-      </div>
-      <div class="overview-item">
-        <span>추출된 식품유형</span>
-        <strong id="infoType">-</strong>
-      </div>
-      <div class="overview-item">
-        <span>검토 항목 수</span>
-        <strong id="infoCount">-</strong>
+  <!-- 2분할 스플릿 관제 화면 -->
+  <div class="result-split-view" id="resultSplitView">
+    
+    <!-- 좌측: 이미지 및 네모상자 오버레이 관제 -->
+    <div class="image-pane">
+      <div class="card">
+        <h3 style="margin-top:0; font-size:1.05rem;">📷 분석 이미지 & OCR 네모상자</h3>
+        <div class="overlay-controls">
+          <button class="btn-toggle-overlay" onclick="toggleOverlay()">🔍 인식 문자열 상자 표시/숨기기</button>
+        </div>
+        <div class="img-wrapper">
+          <img id="previewImg" src="" alt="라벨 이미지 미리보기">
+          <div class="ocr-overlay-layer" id="ocrOverlay"></div>
+        </div>
       </div>
     </div>
 
-    <h3>✅ 2. 적합 항목 (문제가 없는 사항)</h3>
-    <table id="passTable">
-      <thead>
-        <tr>
-          <th>검토 항목</th>
-          <th>상태</th>
-          <th>세부 내용 / 적합 사유</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+    <!-- 우측: 상세 분석 및 개선 리포트 -->
+    <div class="report-pane">
+      <div class="card">
+        <h2 style="margin-top:0; font-size:1.3rem;">📋 식약처 법령 검수 리포트</h2>
+        <div class="summary-box" id="summaryText"></div>
 
-    <h3 style="margin-top: 28px; color: var(--danger);">🚨 3. 위반 및 개선 필요 항목 (무엇이 문제이며 어떻게 개선할까)</h3>
-    <div id="failListArea"></div>
+        <h3>🔍 1. 분석 개요</h3>
+        <div class="overview-grid">
+          <div class="overview-item">
+            <span>추출 제품명</span>
+            <strong id="infoProduct">-</strong>
+          </div>
+          <div class="overview-item">
+            <span>추출 식품유형</span>
+            <strong id="infoType">-</strong>
+          </div>
+          <div class="overview-item">
+            <span>검토 항목</span>
+            <strong id="infoCount">-</strong>
+          </div>
+        </div>
 
-    <h3 style="margin-top: 28px;">📑 4. 증빙서류 교차 대조 (Cross-Check)</h3>
-    <table id="crossTable">
-      <thead>
-        <tr>
-          <th>검수 항목</th>
-          <th>상태</th>
-          <th>라벨 표기</th>
-          <th>증빙서류 내용</th>
-          <th>비고/대조 지침</th>
-        </tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+        <h3>✅ 2. 적합 항목 (문제 없음)</h3>
+        <table id="passTable">
+          <thead>
+            <tr><th>검토 항목</th><th>상태</th><th>세부 내용</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+
+        <h3 style="margin-top: 20px; color: var(--danger);">🚨 3. 위반 및 개선 필요 항목</h3>
+        <div id="failListArea"></div>
+
+        <h3 style="margin-top: 20px;">📑 4. 증빙서류 교차 대조 (Cross-Check)</h3>
+        <table id="crossTable">
+          <thead>
+            <tr><th>대조 항목</th><th>상태</th><th>라벨 표기</th><th>증빙서류</th><th>비고</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
   </div>
 </div>
 
 <script>
+  let isOverlayActive = false;
+
+  function previewImages() {
+    const labelFile = document.getElementById("labelInput").files[0];
+    if (labelFile) {
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        document.getElementById("previewImg").src = e.target.result;
+      }
+      reader.readAsDataURL(labelFile);
+    }
+  }
+
+  function toggleOverlay() {
+    const overlay = document.getElementById("ocrOverlay");
+    isOverlayActive = !isOverlayActive;
+    if (isOverlayActive) {
+      overlay.classList.add("active");
+    } else {
+      overlay.classList.remove("active");
+    }
+  }
+
   async function analyzeData() {
     const labelFile = document.getElementById("labelInput").files[0];
     const docFile = document.getElementById("docInput").files[0];
 
     if (!labelFile) {
-      alert("라벨/광고 이미지를 등록해 주세요.");
+      alert("라벨 이미지를 먼저 등록해 주세요.");
       return;
     }
+
+    previewImages();
 
     const formData = new FormData();
     formData.append("image", labelFile);
     if (docFile) formData.append("doc", docFile);
 
     document.getElementById("loading").style.display = "block";
-    document.getElementById("resultCard").style.display = "none";
+    document.getElementById("resultSplitView").style.display = "none";
 
     try {
       const response = await fetch("https://qsms.park-chanho.workers.dev", {
@@ -332,14 +419,30 @@
       try { res = JSON.parse(res); } catch (e) {}
     }
 
-    document.getElementById("resultCard").style.display = "block";
-    document.getElementById("summaryText").innerText = res.summary || "분석이 완료되었습니다.";
+    document.getElementById("resultSplitView").style.display = "grid";
+    document.getElementById("summaryText").innerText = res.summary || "검수가 완료되었습니다.";
 
+    // 1. 분석 개요
     const summaryInfo = res.analyzed_summary || {};
     document.getElementById("infoProduct").innerText = summaryInfo.product_name || "라벨 확인됨";
     document.getElementById("infoType").innerText = summaryInfo.food_type || "식품/기구용품";
     document.getElementById("infoCount").innerText = (summaryInfo.detected_items_count || 8) + "개 항목";
 
+    // 2. OCR 네모 상자 오버레이 생성
+    const ocrOverlay = document.getElementById("ocrOverlay");
+    ocrOverlay.innerHTML = "<div style='color:white; font-weight:bold; margin-bottom:8px;'>🎯 AI가 인식한 라벨 핵심 문자열 상자:</div>";
+    if (res.ocr_tags && res.ocr_tags.length > 0) {
+      res.ocr_tags.forEach(tag => {
+        const div = document.createElement("div");
+        div.className = "ocr-tag-box " + (tag.status === "fail" ? "fail" : "");
+        div.innerText = "📌 " + tag.label;
+        ocrOverlay.appendChild(div);
+      });
+    } else {
+      ocrOverlay.innerHTML += "<div style='color:white;'>인식된 텍스트 상자가 없습니다.</div>";
+    }
+
+    // 3. 적합 항목
     const passTbody = document.querySelector("#passTable tbody");
     passTbody.innerHTML = "";
     if (res.passed_items && res.passed_items.length > 0) {
@@ -348,14 +451,15 @@
         tr.innerHTML = `
           <td><strong>${item.name || '-'}</strong></td>
           <td><span class="badge badge-pass">적합</span></td>
-          <td>${item.detail || '식약처 법령 기준에 맞게 올바르게 표기되었습니다.'}</td>
+          <td>${item.detail || '올바르게 표기되었습니다.'}</td>
         `;
         passTbody.appendChild(tr);
       });
     } else {
-      passTbody.innerHTML = "<tr><td colspan='3'>적합 항목 정보를 불러올 수 없습니다.</td></tr>";
+      passTbody.innerHTML = "<tr><td colspan='3'>적합 항목 정보가 없습니다.</td></tr>";
     }
 
+    // 4. 위반 및 개선 카드
     const failListArea = document.getElementById("failListArea");
     failListArea.innerHTML = "";
     if (res.failed_items && res.failed_items.length > 0) {
@@ -366,18 +470,19 @@
           <div class="fail-title">⚠️ [위반 항목] ${fail.item_name || '표시사항 위반'}</div>
           <div><strong>검출 문구:</strong> <span style="color:red;">${fail.found_text || '-'}</span></div>
           <div style="margin-top:4px;"><strong>위반 원인:</strong> ${fail.issue_reason || '-'}</div>
-          <div style="margin-top:4px; font-size:0.9rem; color:#64748b;"><strong>관련 법령:</strong> ${fail.law || '-'}</div>
+          <div style="margin-top:4px; font-size:0.85rem; color:#64748b;"><strong>관련 법령:</strong> ${fail.law || '-'}</div>
           <div class="improve-box">
-            <strong>🛠️ 이렇게 개선하세요 (수정 가이드):</strong><br>
-            ${fail.how_to_improve || '관련 문구를 삭제하거나 식약처 표준 권장 문구로 수정하세요.'}
+            <strong>🛠️ 이렇게 개선하세요:</strong><br>
+            ${fail.how_to_improve || '관련 문구를 삭제하거나 식약처 권장 문구로 수정하세요.'}
           </div>
         `;
         failListArea.appendChild(div);
       });
     } else {
-      failListArea.innerHTML = "<div style='padding:16px; background:#f0fdf4; color:#166534; border-radius:8px; font-weight:bold;'>🎉 위반사항 및 개선 필요 항목이 검출되지 않았습니다.</div>";
+      failListArea.innerHTML = "<div style='padding:14px; background:#f0fdf4; color:#166534; border-radius:8px; font-weight:bold;'>🎉 위반사항 및 개선 필요 항목이 검출되지 않았습니다.</div>";
     }
 
+    // 5. 증빙서류 교차 대조
     const crossTbody = document.querySelector("#crossTable tbody");
     crossTbody.innerHTML = "";
     if (res.cross_check && res.cross_check.length > 0) {
