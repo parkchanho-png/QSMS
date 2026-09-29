@@ -1,13 +1,10 @@
-// 1. 순수 JSON 파서
 function parseAIJSON(raw) {
   if (!raw) return null;
   let str = typeof raw === "string" ? raw : JSON.stringify(raw);
-
   str = str.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
   const start = str.indexOf('{');
   if (start === -1) return null;
   str = str.slice(start);
-
   try { return JSON.parse(str); } catch (e) {}
 
   let inString = false, escaped = false, cleaned = [];
@@ -56,11 +53,9 @@ function parseAIJSON(raw) {
     if (top === '{') repStr += '}';
     else if (top === '[') repStr += ']';
   }
-
   try { return JSON.parse(repStr); } catch (e) { return null; }
 }
 
-// 2. 📌 구문 파싱 실패 시 실행되는 100% 안심 정규식 데이터 추출기
 function regexExtractLLMJSON(raw) {
   if (!raw || typeof raw !== "string") return null;
 
@@ -68,8 +63,8 @@ function regexExtractLLMJSON(raw) {
   const sumMatch = raw.match(/"summary"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
   if (sumMatch && sumMatch[1]) summary = sumMatch[1];
 
-  let productName = "TBK 얼큰해장국";
-  let foodType = "국·탕류 (가공식품)";
+  let productName = "추출 대기중";
+  let foodType = "즉석조리식품"; // 기본값 보정
 
   const prodMatch = raw.match(/"product_name"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
   if (prodMatch && prodMatch[1]) productName = prodMatch[1];
@@ -83,7 +78,20 @@ function regexExtractLLMJSON(raw) {
   const passedRegex = /\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"detail"\s*:\s*"([^"]+)"\s*\}/gi;
   let pMatch;
   while ((pMatch = passedRegex.exec(raw)) !== null) {
-    passedItems.push({ name: pMatch[1], detail: pMatch[2] });
+    if (!pMatch[0].includes("item_name") && !pMatch[0].includes("status")) {
+      passedItems.push({ name: pMatch[1], detail: pMatch[2] });
+    }
+  }
+
+  let optionalItems = [];
+  const optionalRegex = /"optional_items"\s*:\s*\[([\s\S]*?)\]/i;
+  const optSection = raw.match(optionalRegex);
+  if (optSection && optSection[1]) {
+    const optItemRegex = /\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"detail"\s*:\s*"([^"]+)"\s*\}/gi;
+    let oMatch;
+    while ((oMatch = optItemRegex.exec(optSection[1])) !== null) {
+      optionalItems.push({ name: oMatch[1], detail: oMatch[2] });
+    }
   }
 
   let failedItems = [];
@@ -91,11 +99,7 @@ function regexExtractLLMJSON(raw) {
   let fMatch;
   while ((fMatch = failedRegex.exec(raw)) !== null) {
     failedItems.push({
-      item_name: fMatch[1],
-      found_text: fMatch[2],
-      issue_reason: fMatch[3],
-      law: fMatch[4],
-      how_to_improve: fMatch[5]
+      item_name: fMatch[1], found_text: fMatch[2], issue_reason: fMatch[3], law: fMatch[4], how_to_improve: fMatch[5]
     });
   }
 
@@ -104,11 +108,7 @@ function regexExtractLLMJSON(raw) {
   let cMatch;
   while ((cMatch = crossRegex.exec(raw)) !== null) {
     crossCheck.push({
-      item: cMatch[1],
-      status: cMatch[2],
-      label_value: cMatch[3],
-      doc_value: cMatch[4],
-      note: cMatch[5]
+      item: cMatch[1], status: cMatch[2], label_value: cMatch[3], doc_value: cMatch[4], note: cMatch[5]
     });
   }
 
@@ -117,30 +117,24 @@ function regexExtractLLMJSON(raw) {
     analyzed_summary: {
       product_name: productName,
       food_type: foodType,
-      detected_items_count: (passedItems.length + failedItems.length) || 8
+      detected_items_count: passedItems.length + failedItems.length + optionalItems.length || 8
     },
-    passed_items: passedItems.length > 0 ? passedItems : [
-      { name: "제품명 표기", detail: "식품등의 표시기준 제4조에 의거 한글 제품명 'TBK 얼큰해장국' 명확 표기 적합" },
-      { name: "식품유형 명시", detail: "식품의 기준 및 규격에 의거 식품유형 명시 적합" }
-    ],
+    passed_items: passedItems,
+    optional_items: optionalItems,
     failed_items: failedItems,
     cross_check: crossCheck
   };
 }
 
-// 3. 📌 강제 주소 및 증빙 검증 후처리
 function enforceStrictValidation(data) {
   if (!data || !data.cross_check) return data;
-
   data.cross_check.forEach(item => {
     const labelVal = (item.label_value || "").trim();
     const docVal = (item.doc_value || "").trim();
     const itemName = item.item || "";
 
     if (docVal.includes("미제출") || docVal === "" || docVal.includes("없음")) {
-      item.status = "mismatch";
-      item.doc_value = "증빙서류 미제출";
-      item.note = "자료확인불가";
+      item.status = "mismatch"; item.doc_value = "증빙서류 미제출"; item.note = "자료확인불가";
       return;
     }
 
@@ -156,12 +150,10 @@ function enforceStrictValidation(data) {
           item.note = "라벨 표기 주소와 사업자등록증 주소가 일치하지 않음";
         }
       } else {
-        item.status = "match";
-        item.note = "일치함";
+        item.status = "match"; item.note = "일치함";
       }
     }
   });
-
   return data;
 }
 
@@ -173,48 +165,33 @@ export default {
       "Access-Control-Allow-Headers": "Content-Type",
     };
 
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: corsHeaders });
-    }
+    if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
     const visionModel = "@cf/meta/llama-3.2-11b-vision-instruct";
     const textModel = "@cf/meta/llama-3.1-70b-instruct";
 
     if (request.method === "GET") {
-      return new Response("🎉 LabelGuard AI v2.1.0 가짜 오류 차단 검수 엔진 가동 중!", {
+      return new Response("🎉 LabelGuard AI v2.2.0 식약처 필수/선택 자동 분류 엔진 가동 중!", {
         headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
       });
     }
 
     if (request.method === "POST") {
       try {
-        if (!env.AI) {
-          return new Response(
-            JSON.stringify({ success: false, error: "Workers AI 바인딩('AI')이 필요합니다." }),
-            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-
+        if (!env.AI) throw new Error("Workers AI 바인딩('AI')이 필요합니다.");
         const formData = await request.formData();
         const labelFile = formData.get("image");
         const docFile = formData.get("doc");
         const tesseractLabelText = formData.get("labelText") || "";
         let tesseractDocText = formData.get("docText") || "";
 
-        if (!labelFile) {
-          return new Response(
-            JSON.stringify({ success: false, error: "라벨 이미지가 전송되지 않았습니다." }),
-            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
-
+        if (!labelFile) throw new Error("라벨 이미지가 전송되지 않았습니다.");
         try { await env.AI.run(visionModel, { prompt: "agree" }).catch(() => {}); } catch (e) {}
 
-        // Vision AI 2차 OCR
         const labelBuffer = await labelFile.arrayBuffer();
         const labelBytes = Array.from(new Uint8Array(labelBuffer));
         const visionOcrRes = await env.AI.run(visionModel, {
-          prompt: "이 라벨 사진의 모든 한글 텍스트(제품명, 규격, 원재료, 보관방법, 제조원, 판매원, 주소)를 정확히 읽으세요.",
+          prompt: "이 라벨 사진의 모든 한글 텍스트를 정확히 읽으세요.",
           image: labelBytes
         });
         const visionLabelText = visionOcrRes.response || "";
@@ -234,92 +211,54 @@ export default {
           } catch (e) {}
         }
 
-        // 70B AI 분석 프롬프트
-        const prompt = `당신은 대한민국 식약처 전문 표시사항 검수관입니다.
-제출된 OCR 텍스트를 교정하고 식약처 고시에 따라 검수하여 오직 지정된 JSON 포맷으로만 답변하세요.
+        const prompt = `당신은 대한민국 식약처 표시사항 법령 단속관입니다.
+[OCR 추출 텍스트] (Tesseract: ${tesseractLabelText} / Vision AI: ${visionLabelText})
+[증빙서류 텍스트] (${tesseractDocText || visionDocText || "증빙서류 미제출"})
 
-[OCR 추출 텍스트]
-(Tesseract): ${tesseractLabelText || "없음"}
-(Vision AI): ${visionLabelText || "없음"}
-
-[제출된 증빙서류 텍스트]
-${tesseractDocText || visionDocText || "증빙서류 미제출"}
-
-[핵심 교정 지침]
-1. OCR 오독을 식약처 식품 표준 단어로 교정하세요 (예: '알크레' -> '얼큰', 'TBK 알크레해장국' -> 'TBK 얼큰해장국').
-2. 해당 식품 유형의 법정 필수 표기사항(제품명, 원재료, 소비기한, 보관방법 등) 적합 사유를 'passed_items'에 수록하세요.
-3. 증빙서류 미제출 시 판매원은 doc_value: "증빙서류 미제출", note: "자료확인불가", status: "mismatch"로 반환하세요.
-4. 제조원 상세주소 누락 시 status: "mismatch"로 평가하세요.
+[완벽 검수 4대 지침]
+1. [식품유형 정규화]: OCR이 '주식조리식품' 등 잘못된 단어를 추출했다면, 식약처 공식 '식품공전' 기준에 맞는 올바른 유형(예: 즉석조리식품, 식육추출가공품 등)으로 교정하여 'food_type'에 기재하세요.
+2. [필수 항목 검증]: 교정된 식품유형을 바탕으로 식약처 고시상 반드시 기재해야 할 '법정 필수 표시항목' 목록(제품명, 식품유형, 소비기한, 원재료명, 내용량, 보관방법, 업소명 및 소재지 등)을 구성하고, 누락 없이 정확히 표기되었는지 대조하세요. 적합하면 'passed_items', 누락/위반은 'failed_items'에 넣으세요.
+3. [선택/추가 항목 분류]: 법정 필수 표기사항은 아니지만 라벨에 추가로 적혀있는 내용(예: 조리방법, 주의사항, 고객상담실, 소비자분쟁해결기준 등)은 반드시 'optional_items' 배열에 따로 분류하세요.
+4. [엄격 교차 대조]: 증빙서류 미제출된 판매원 등은 status를 "mismatch"로, note를 "자료확인불가"로 반환하세요.
 
 [JSON 응답 규격]
 {
-  "summary": "검수 결과 종합 총평",
+  "summary": "검수 결과 총평",
   "analyzed_summary": {
-    "product_name": "TBK 얼큰해장국",
-    "food_type": "주식조리식품",
-    "detected_items_count": 9
+    "product_name": "정확한 제품명",
+    "food_type": "식품공전 기준 공식 식품유형 (예: 즉석조리식품)",
+    "detected_items_count": 12
   },
   "passed_items": [
-    { "name": "제품명 표기", "detail": "식품등의 표시기준 제4조에 따라 한글 제품명 'TBK 얼큰해장국' 명확 표기 적합" }
+    { "name": "식품유형", "detail": "식품공전에 따른 '즉석조리식품' 명시 적합" },
+    { "name": "소비기한", "detail": "필수 표시항목인 소비기한 표기 적합" }
+  ],
+  "optional_items": [
+    { "name": "소비자상담실", "detail": "소비자 편의를 위한 고객센터 번호 추가 기재됨" }
   ],
   "failed_items": [
-    { "item_name": "위반 항목명", "found_text": "검출 문구", "issue_reason": "위반 사유", "law": "관련 법령", "how_to_improve": "개선 가이드" }
+    { "item_name": "내용량 누락", "found_text": "표기 없음", "issue_reason": "필수 항목인 내용량이 누락됨", "law": "식품등의 표시기준", "how_to_improve": "내용량을 명확히 기재하세요." }
   ],
   "cross_check": [
-    {
-      "item": "제조원 주소",
-      "status": "mismatch",
-      "label_value": "(주)라비스타커머스, 경기도 김포시 통진읍 서암로 207",
-      "doc_value": "주식회사 라비스타커머스, 경기도 김포시 통진읍 서암로 207, 나동 1층 우측면",
-      "note": "사업자등록증상의 상세주소('나동 1층 우측면')가 라벨 주소에서 누락되어 불일치함"
-    },
-    {
-      "item": "판매원",
-      "status": "mismatch",
-      "label_value": "백쿡, 서울시 서초구 강남대로 79길 52-8, 201호",
-      "doc_value": "증빙서류 미제출",
-      "note": "자료확인불가"
-    }
+    { "item": "제조원 주소", "status": "match", "label_value": "주소", "doc_value": "주소", "note": "일치" }
   ]
 }`;
 
         const aiRes = await env.AI.run(textModel, { prompt: prompt, max_tokens: 2560 });
         const rawText = aiRes.response || JSON.stringify(aiRes);
         
-        // 1차: JSON 파싱 시도
-        let parsedJson = parseAIJSON(rawText);
+        let parsedJson = parseAIJSON(rawText) || regexExtractLLMJSON(rawText);
 
-        // 2차: JSON 파싱 실패 시 정규식 데이터 추출기 가동
         if (!parsedJson) {
-          parsedJson = regexExtractLLMJSON(rawText);
+          throw new Error("AI 응답 해석 실패");
         }
 
-        // 3차: 안전 검증 및 교정
-        if (!parsedJson) {
-          parsedJson = {
-            summary: "식약처 법령 검수 및 대조 분석이 완수되었습니다.",
-            analyzed_summary: { product_name: "TBK 얼큰해장국", food_type: "주식조리식품", detected_items_count: 8 },
-            passed_items: [
-              { name: "제품명 표기", detail: "식품등의 표시기준 제4조에 따라 한글 제품명 'TBK 얼큰해장국' 명확 표기 적합" }
-            ],
-            failed_items: [],
-            cross_check: []
-          };
-        }
-
-        // 4차: 강제 주소 검증 후처리
         parsedJson = enforceStrictValidation(parsedJson);
 
-        return new Response(
-          JSON.stringify({ success: true, result: parsedJson }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return new Response(JSON.stringify({ success: true, result: parsedJson }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
       } catch (err) {
-        return new Response(
-          JSON.stringify({ success: false, error: err.message || String(err) }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
     }
   }
