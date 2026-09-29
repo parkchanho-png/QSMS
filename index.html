@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LabelGuard AI - 식약처 법령 검수 v2.2.0</title>
+  <title>LabelGuard AI - 식약처 법령 검수 v2.3.0</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     :root {
@@ -53,7 +53,7 @@
     .overview-item strong { font-size: 1rem; color: var(--text); }
     .badge { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: bold; }
     .badge-pass { background: #dcfce7; color: #166534; }
-    .badge-opt { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+    .badge-opt { background: #f8fafc; color: #475569; border: 1px solid #cbd5e1; }
     .badge-fail { background: #fee2e2; color: #991b1b; }
     .fail-card { background: var(--danger-bg); border: 1px solid #fca5a5; border-radius: 8px; padding: 14px; margin-bottom: 12px; }
     .fail-title { font-weight: bold; color: var(--danger); margin-bottom: 6px; }
@@ -67,8 +67,8 @@
 
 <div class="container">
   <div class="header">
-    <h1>🛡️ LabelGuard AI <span class="version-badge">v2.2.0</span></h1>
-    <p>식품공전 필수/선택 자동분류 및 식약처 정밀 관제 시스템</p>
+    <h1>🛡️ LabelGuard AI <span class="version-badge">v2.3.0</span></h1>
+    <p>식약처 고시 11대 필수항목 전수검사 및 선택사항 분류 엔진</p>
   </div>
 
   <div class="card">
@@ -88,7 +88,7 @@
         <input type="file" id="docInput" accept="image/*">
       </div>
     </div>
-    <button class="btn" onclick="analyzeData()">실시간 필수항목 검수 시작</button>
+    <button class="btn" onclick="analyzeData()">식약처 고시 기준 정밀 검수 시작</button>
   </div>
 
   <div class="loading" id="loading">
@@ -111,21 +111,21 @@
 
     <div class="report-pane">
       <div class="card">
-        <h2 style="margin-top:0; font-size:1.3rem;">📋 식약처 법령 검수 리포트</h2>
+        <h2 style="margin-top:0; font-size:1.3rem;">📋 식약처 고시 11대 항목 정밀 검수 리포트</h2>
         <div class="summary-box" id="summaryText"></div>
 
         <h3>🔍 1. 분석 개요 (식품공전 기준 정규화)</h3>
         <div class="overview-grid">
           <div class="overview-item">
             <span>추출 및 교정 제품명</span>
-            <strong id="infoProduct">-</strong>
+            <strong id="infoProduct" style="color:var(--primary);">-</strong>
           </div>
           <div class="overview-item">
-            <span style="color:var(--primary); font-weight:bold;">식약처 공식 식품유형</span>
-            <strong id="infoType">-</strong>
+            <span>식약처 공식 식품유형</span>
+            <strong id="infoType" style="color:var(--primary);">-</strong>
           </div>
           <div class="overview-item">
-            <span>총 검토 항목</span>
+            <span>총 판독/추출 항목</span>
             <strong id="infoCount">-</strong>
           </div>
         </div>
@@ -133,7 +133,7 @@
         <h3>✅ 2. 법정 필수 표시항목 (적합)</h3>
         <table id="passTable">
           <thead>
-            <tr><th>필수 항목명</th><th>상태</th><th>식약처 관련 법령 및 적합 근거 사유</th></tr>
+            <tr><th style="width:25%;">필수 항목명</th><th style="width:15%;">상태</th><th>식약처 표기 기준 대조 결과</th></tr>
           </thead>
           <tbody></tbody>
         </table>
@@ -141,7 +141,7 @@
         <h3 style="margin-top: 20px;">ℹ️ 3. 별도 표기 항목 (선택/추가 표시사항)</h3>
         <table id="optionalTable">
           <thead>
-            <tr><th>추가 항목명</th><th>상태</th><th>기재 내용 및 목적</th></tr>
+            <tr><th style="width:25%;">추가 항목명</th><th style="width:15%;">분류</th><th>기재 내용 및 목적</th></tr>
           </thead>
           <tbody></tbody>
         </table>
@@ -255,7 +255,7 @@
         } catch (e) {}
       }
 
-      loadingMsg.innerText = "🔍 3단계: 식약처 필수항목 추출 및 정밀 법령 검수 중...";
+      loadingMsg.innerText = "🔍 3단계: 식약처 고시 11대 필수항목 추출 및 법령 검수 중...";
       const formData = new FormData();
       formData.append("image", labelFile);
       if (docFile) formData.append("doc", docFile);
@@ -297,32 +297,32 @@
   function renderResult(res) {
     if (typeof res === "string") { try { res = JSON.parse(res); } catch (e) {} }
     document.getElementById("resultSplitView").style.display = "grid";
-    document.getElementById("summaryText").innerText = res.summary || "검수가 완료되었습니다.";
+    document.getElementById("summaryText").innerText = res.summary || "식약처 고시 기준 검수가 완료되었습니다.";
 
     const summaryInfo = res.analyzed_summary || {};
     document.getElementById("infoProduct").innerText = summaryInfo.product_name || "식별 대기";
     document.getElementById("infoType").innerText = summaryInfo.food_type || "유형 확인 필요";
-    document.getElementById("infoCount").innerText = (summaryInfo.detected_items_count || 0) + "개 항목";
+    document.getElementById("infoCount").innerText = (summaryInfo.detected_items_count || 0) + "개 항목 추출";
 
     const passTbody = document.querySelector("#passTable tbody");
     passTbody.innerHTML = "";
     if (res.passed_items && res.passed_items.length > 0) {
       res.passed_items.forEach(item => {
         const tr = document.createElement("tr");
-        tr.innerHTML = `<td><strong>${item.name || '-'}</strong></td><td><span class="badge badge-pass">적합</span></td><td>${item.detail || '확인 완료'}</td>`;
+        tr.innerHTML = `<td><strong>${item.name || '-'}</strong></td><td><span class="badge badge-pass">적합</span></td><td>${item.detail || '표기 확인 완료'}</td>`;
         passTbody.appendChild(tr);
       });
-    } else { passTbody.innerHTML = "<tr><td colspan='3'>적합 항목 정보가 없습니다.</td></tr>"; }
+    } else { passTbody.innerHTML = "<tr><td colspan='3'>적합 항목으로 판별된 필수 표시사항이 없습니다.</td></tr>"; }
 
     const optTbody = document.querySelector("#optionalTable tbody");
     optTbody.innerHTML = "";
     if (res.optional_items && res.optional_items.length > 0) {
       res.optional_items.forEach(item => {
         const tr = document.createElement("tr");
-        tr.innerHTML = `<td><strong>${item.name || '-'}</strong></td><td><span class="badge badge-opt">선택 기재</span></td><td>${item.detail || '추가 표기사항'}</td>`;
+        tr.innerHTML = `<td><strong>${item.name || '-'}</strong></td><td><span class="badge badge-opt">선택/추가 정보</span></td><td>${item.detail || '법적 의무 외 추가 기재사항'}</td>`;
         optTbody.appendChild(tr);
       });
-    } else { optTbody.innerHTML = "<tr><td colspan='3'>추가 선택 표기 항목이 없습니다.</td></tr>"; }
+    } else { optTbody.innerHTML = "<tr><td colspan='3'>추가 선택 표기 항목이 추출되지 않았습니다.</td></tr>"; }
 
     const failListArea = document.getElementById("failListArea");
     failListArea.innerHTML = "";
@@ -336,16 +336,16 @@
         const div = document.createElement("div");
         div.className = "fail-card";
         div.innerHTML = `
-          <div class="fail-title">⚠️ [위반 항목] ${fail.item_name || '표시사항 위반'}</div>
-          <div><strong>검출 문구:</strong> <span style="color:red;">${fail.found_text || '-'}</span></div>
-          <div style="margin-top:4px;"><strong>위반 원인:</strong> ${fail.issue_reason || '-'}</div>
-          <div style="margin-top:4px; font-size:0.85rem; color:#64748b;"><strong>관련 법령:</strong> ${fail.law || '-'}</div>
-          <div class="improve-box"><strong>🛠️ 이렇게 개선하세요:</strong><br>${fail.how_to_improve || '관련 문구를 삭제하거나 식약처 권장 문구로 수정하세요.'}</div>
+          <div class="fail-title">⚠️ [누락/위반] ${fail.item_name || '필수 표시사항 누락'}</div>
+          <div><strong>라벨 표기 상태:</strong> <span style="color:var(--danger);">${fail.found_text || '표기 없음'}</span></div>
+          <div style="margin-top:4px;"><strong>위반/누락 원인:</strong> ${fail.issue_reason || '-'}</div>
+          <div style="margin-top:4px; font-size:0.85rem; color:#64748b;"><strong>관련 법령:</strong> ${fail.law || '식품등의 표시기준'}</div>
+          <div class="improve-box"><strong>🛠️ 조치 필요 가이드:</strong><br>${fail.how_to_improve || '해당 필수 표시사항을 명확히 추가 기재하세요.'}</div>
         `;
         failListArea.appendChild(div);
       });
     } else {
-      failListArea.innerHTML = "<div style='padding:14px; background:#f0fdf4; color:#166534; border-radius:8px; font-weight:bold;'>🎉 필수 기재사항 누락이나 위반사항이 없습니다.</div>";
+      failListArea.innerHTML = "<div style='padding:14px; background:#f0fdf4; color:#166534; border-radius:8px; font-weight:bold;'>🎉 식약처 고시 11대 필수 기재사항 누락이나 위반사항이 발견되지 않았습니다.</div>";
     }
 
     const crossTbody = document.querySelector("#crossTable tbody");
