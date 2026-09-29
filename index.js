@@ -1,11 +1,8 @@
-// ArrayBuffer -> Base64 변환 도우미
+// ArrayBuffer -> Base64 변환
 function arrayBufferToBase64(buffer) {
   let binary = '';
   const bytes = new Uint8Array(buffer);
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
   return btoa(binary);
 }
 
@@ -34,61 +31,6 @@ function enforceStrictValidation(data) {
   return data;
 }
 
-// 정규식 역파서
-function regexExtractLLMJSON(raw) {
-  if (!raw || typeof raw !== "string") return null;
-
-  let summary = "데이터 구조 정제가 완료되었습니다.";
-  const sumMatch = raw.match(/"summary"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
-  if (sumMatch && sumMatch[1]) summary = sumMatch[1];
-
-  let productName = "판독 불가"; let foodType = "분류 불가"; 
-  const prodMatch = raw.match(/"product_name"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
-  if (prodMatch && prodMatch[1]) productName = prodMatch[1];
-  const typeMatch = raw.match(/"food_type"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
-  if (typeMatch && typeMatch[1]) foodType = typeMatch[1];
-
-  let passedItems = [];
-  const passedSectionMatch = raw.match(/"passed_items"\s*:\s*\[([\s\S]*?)\]\s*,/i);
-  if (passedSectionMatch && passedSectionMatch[1]) {
-    const passedRegex = /\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"detail"\s*:\s*"([^"]+)"\s*\}/gi;
-    let pMatch;
-    while ((pMatch = passedRegex.exec(passedSectionMatch[1])) !== null) {
-      if (!pMatch[0].includes("status")) passedItems.push({ name: pMatch[1], detail: pMatch[2] });
-    }
-  }
-
-  let optionalItems = [];
-  const optionalSectionMatch = raw.match(/"optional_items"\s*:\s*\[([\s\S]*?)\]\s*,/i);
-  if (optionalSectionMatch && optionalSectionMatch[1]) {
-    const optRegex = /\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"detail"\s*:\s*"([^"]+)"\s*\}/gi;
-    let oMatch;
-    while ((oMatch = optRegex.exec(optionalSectionMatch[1])) !== null) {
-      optionalItems.push({ name: oMatch[1], detail: oMatch[2] });
-    }
-  }
-
-  let failedItems = [];
-  const failedRegex = /\{\s*"item_name"\s*:\s*"([^"]+)"\s*,\s*"found_text"\s*:\s*"([^"]+)"\s*,\s*"issue_reason"\s*:\s*"([^"]+)"\s*,\s*"law"\s*:\s*"([^"]+)"\s*,\s*"how_to_improve"\s*:\s*"([^"]+)"\s*\}/gi;
-  let fMatch;
-  while ((fMatch = failedRegex.exec(raw)) !== null) {
-    failedItems.push({ item_name: fMatch[1], found_text: fMatch[2], issue_reason: fMatch[3], law: fMatch[4], how_to_improve: fMatch[5] });
-  }
-
-  let crossCheck = [];
-  const crossRegex = /\{\s*"item"\s*:\s*"([^"]+)"\s*,\s*"status"\s*:\s*"([^"]+)"\s*,\s*"label_value"\s*:\s*"([^"]+)"\s*,\s*"doc_value"\s*:\s*"([^"]+)"\s*,\s*"note"\s*:\s*"([^"]+)"\s*\}/gi;
-  let cMatch;
-  while ((cMatch = crossRegex.exec(raw)) !== null) {
-    crossCheck.push({ item: cMatch[1], status: cMatch[2], label_value: cMatch[3], doc_value: cMatch[4], note: cMatch[5] });
-  }
-
-  return {
-    summary,
-    analyzed_summary: { product_name: productName, food_type: foodType, detected_items_count: passedItems.length + failedItems.length + optionalItems.length },
-    passed_items: passedItems, optional_items: optionalItems, failed_items: failedItems, cross_check: crossCheck
-  };
-}
-
 export default {
   async fetch(request, env) {
     const corsHeaders = {
@@ -99,12 +41,57 @@ export default {
 
     if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-    if (request.method === "POST") {
+    const geminiApiKey = (env.GEMINI_API_KEY || "").trim();
+
+    // 🔍 1. 진단 모드 (웹 브라우저로 백엔드 URL 직접 접속 시 작동)
+    if (request.method === "GET") {
+      if (!geminiApiKey) {
+        return new Response(
+          JSON.stringify({ status: "ERROR", message: "Cloudflare 환경변수 GEMINI_API_KEY가 설정되어 있지 않습니다." }, null, 2),
+          { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } }
+        );
+      }
+
       try {
-        const geminiApiKey = env.GEMINI_API_KEY;
-        if (!geminiApiKey) {
-          throw new Error("서버 환경 변수(GEMINI_API_KEY)가 설정되지 않았습니다.");
-        }
+        const listModelsUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${geminiApiKey}`;
+        const res = await fetch(listModelsUrl);
+        const resText = await res.text();
+        
+        let modelsData = null;
+        try { modelsData = JSON.parse(resText); } catch (e) {}
+
+        const isKeyFormatValid = geminiApiKey.startsWith("AIzaSy");
+
+        const diagnosticReport = {
+          system: "LabelGuard AI v3.4.0 실시간 진단 리포트",
+          api_key_check: {
+            starts_with_AIzaSy: isKeyFormatValid,
+            note: isKeyFormatValid ? "정상적인 구글 API 키 규격입니다." : "⚠️ 구글 AI 스튜디오 API 키는 보통 'AIzaSy'로 시작합니다. 등록된 키 값을 다시 확인해보세요."
+          },
+          google_api_http_status: res.status,
+          available_models_for_this_key: modelsData?.models
+            ? modelsData.models
+                .filter(m => m.supportedGenerationMethods?.includes("generateContent"))
+                .map(m => m.name.replace("models/", ""))
+            : "모델 목록 조회 불가",
+          raw_google_response: modelsData || resText
+        };
+
+        return new Response(JSON.stringify(diagnosticReport, null, 2), {
+          headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" }
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ status: "DIAGNOSTIC_FAILED", error: err.message }, null, 2), {
+          headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" }
+        });
+      }
+    }
+
+    // 📌 2. 라벨 검수 모드 (POST)
+    if (request.method === "POST") {
+      const logs = [];
+      try {
+        if (!geminiApiKey) throw new Error("서버 환경 변수(GEMINI_API_KEY)가 설정되지 않았습니다.");
 
         const formData = await request.formData();
         const labelFile = formData.get("image");
@@ -117,6 +104,30 @@ export default {
           );
         }
 
+        // 1단계: 구글 API에서 사용 가능한 모델 목록 실시간 수집
+        let candidateModels = ["gemini-1.5-flash", "gemini-1.5-pro"];
+        try {
+          const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${geminiApiKey}`);
+          if (listRes.ok) {
+            const listData = await listRes.json();
+            if (listData.models && Array.isArray(listData.models)) {
+              const fetched = listData.models
+                .filter(m => m.supportedGenerationMethods?.includes("generateContent"))
+                .map(m => m.name.replace("models/", ""));
+              if (fetched.length > 0) {
+                candidateModels = fetched;
+                logs.push(`[자동 탐색 완료] 이 API 키로 즉시 사용 가능한 ${fetched.length}개 모델 감지: ${fetched.join(", ")}`);
+              }
+            }
+          } else {
+            const errText = await listRes.text();
+            logs.push(`[경고] 모델 자동 탐색 실패 (Status ${listRes.status}): ${errText}`);
+          }
+        } catch (e) {
+          logs.push(`[경고] 모델 탐색 중 예외 발생: ${e.message}`);
+        }
+
+        // 2단계: 이미지 바이너리 Base64 변환
         const labelBuffer = await labelFile.arrayBuffer();
         const labelBase64 = arrayBufferToBase64(labelBuffer);
         const contentsParts = [
@@ -136,12 +147,6 @@ export default {
         const promptText = `당신은 대한민국 식약처(MFDS) 표시사항 법령 단속 최고 권위관입니다.
 제출된 라벨 이미지 원본과 증빙 서류를 식약처 '식품등의 표시기준' 및 '식품공전' 고시에 따라 정밀 분석하세요.
 
-[검수 및 매핑 지침]
-1. 라벨 속 한글을 정밀하게 판독하고 식약처 공식 식품유형(예: 즉석조리식품)으로 동적 분류하세요.
-2. 해당 식품유형에 법적으로 요구되는 필수 표기사항(제품명, 식품유형, 영업소 명칭 및 소재지, 소비기한, 내용량, 원재료명, 영양성분, 포장재질, 보관방법 등)을 전수 대조하세요.
-3. 누락되었거나 표시기준을 위반한 필수 항목은 'failed_items'에, 적합한 항목은 'passed_items'에 넣으세요.
-4. 법적 의무가 아닌 추가 정보(고객상담실, 반품처, 조리방법 등)는 'optional_items'에 분리하세요.
-
 [JSON 응답 규격]
 {
   "summary": "검수 결과 총평",
@@ -153,24 +158,17 @@ export default {
 }`;
         contentsParts.unshift({ text: promptText });
 
-        // 📌 Gemini 3.6 Flash 최우선 지정
-        const modelsToTry = [
-          "gemini-3.6-flash",
-          "gemini-2.5-flash",
-          "gemini-1.5-flash"
-        ];
-
         let jsonString = "";
-        let lastError = "";
 
-        for (const modelName of modelsToTry) {
+        // 3단계: 실시간 탐지된 모델 순차 호출
+        for (const modelName of candidateModels) {
           const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
-          
           const requestBody = {
             contents: [{ parts: contentsParts }],
             generationConfig: { responseMimeType: "application/json", temperature: 0.1 }
           };
 
+          logs.push(`[시도] 모델 '${modelName}' 호출 시작...`);
           const geminiRes = await fetch(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -180,35 +178,38 @@ export default {
           if (geminiRes.ok) {
             const data = await geminiRes.json();
             jsonString = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (jsonString) break;
+            if (jsonString) {
+              logs.push(`[성공] 모델 '${modelName}' 분석 응답 수신 완료!`);
+              break;
+            }
           } else {
-            lastError = await geminiRes.text();
+            const errBody = await geminiRes.text();
+            logs.push(`[실패] 모델 '${modelName}' (HTTP ${geminiRes.status}): ${errBody}`);
           }
         }
 
         if (!jsonString) {
-          throw new Error(`제미나이 API 연동 실패: ${lastError}`);
+          return new Response(
+            JSON.stringify({ success: false, error: "모든 Gemini 모델 연동에 실패했습니다.", debug_logs: logs }, null, 2),
+            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } }
+          );
         }
 
         let parsedResult = null;
-        try { 
-          parsedResult = JSON.parse(jsonString); 
-        } catch (e) { 
-          parsedResult = regexExtractLLMJSON(jsonString); 
-        }
-        
-        if (!parsedResult) throw new Error("결과 해석 실패");
+        try { parsedResult = JSON.parse(jsonString); } catch (e) {}
+        if (!parsedResult) throw new Error("AI 응답 JSON 파싱 실패");
+
         parsedResult = enforceStrictValidation(parsedResult);
 
         return new Response(
-          JSON.stringify({ success: true, result: parsedResult }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          JSON.stringify({ success: true, result: parsedResult, debug_logs: logs }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } }
         );
 
       } catch (err) {
         return new Response(
-          JSON.stringify({ success: false, error: err.message || String(err) }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          JSON.stringify({ success: false, error: err.message || String(err), debug_logs: logs }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } }
         );
       }
     }
