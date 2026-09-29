@@ -12,32 +12,32 @@ export default {
 
     const modelName = "@cf/meta/llama-3.2-11b-vision-instruct";
 
-    // 🔥 핵심 해결책: 인터넷 주소창으로 직접 접속했을 때 (GET 요청) 'agree' 자동 제출!
+    // 1) 주소창 접속(GET) 시 Meta 약관 'agree' 자동 제출
     if (request.method === "GET") {
       try {
-        const agreeResponse = await env.AI.run(modelName, { prompt: "agree" });
-        return new Response("✅ Meta AI 라이선스 동의가 완벽하게 성공했습니다!\n\n이제 돌아가서 라벨 사진을 업로드하고 분석을 시작하세요!\n(서버응답: " + JSON.stringify(agreeResponse) + ")", {
+        await env.AI.run(modelName, { prompt: "agree" });
+        return new Response("🎉 Meta AI 약관 동의가 완벽하게 완료되었습니다!\n\n이제 원래 웹사이트로 돌아가서 라벨 분석을 진행해 주세요.", {
           headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
         });
       } catch (err) {
-        return new Response("동의 시도 중 에러 발생 (새로고침 해보세요): " + err.message, {
+        return new Response("동의 처리 중 메시지: " + err.message, {
           headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
         });
       }
     }
 
-    // 기존 프론트엔드 이미지 분석 (POST 요청)
+    // 2) 웹사이트 이미지 분석 요청(POST) 처리
     if (request.method === "POST") {
       try {
         if (!env.AI) {
-          return new Response(JSON.stringify({ success: false, error: "AI 바인딩 필요" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ success: false, error: "Workers AI 바인딩('AI')이 비어있습니다." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
 
         const formData = await request.formData();
         const imageFile = formData.get("image");
 
         if (!imageFile) {
-          return new Response(JSON.stringify({ success: false, error: "이미지 누락" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ success: false, error: "이미지 파일이 전달되지 않았습니다." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
 
         const arrayBuffer = await imageFile.arrayBuffer();
@@ -70,6 +70,9 @@ export default {
   ]
 }`;
 
+        // 안전망: 분석 요청 직전에도 'agree' 사전 호출 실행
+        try { await env.AI.run(modelName, { prompt: "agree" }); } catch (e) {}
+
         const aiResponse = await env.AI.run(modelName, {
           prompt: prompt,
           image: imageBytes,
@@ -83,7 +86,7 @@ export default {
       } catch (err) {
         return new Response(
           JSON.stringify({ success: false, error: err.message || String(err) }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
     }
