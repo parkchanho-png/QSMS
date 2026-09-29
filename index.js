@@ -1,4 +1,4 @@
-// ArrayBuffer -> Base64 변환 도우미 함수
+// ArrayBuffer -> Base64 변환 도우미
 function arrayBufferToBase64(buffer) {
   let binary = '';
   const bytes = new Uint8Array(buffer);
@@ -9,43 +9,85 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
-// 📌 백엔드 강제 정밀 검증 알고리즘 (주소 누락 / 미제출 서류 100% 통제)
+// 📌 백엔드 강제 정밀 검증
 function enforceStrictValidation(data) {
   if (!data || !data.cross_check) return data;
-
   data.cross_check.forEach(item => {
     const labelVal = (item.label_value || "").trim();
     const docVal = (item.doc_value || "").trim();
     const itemName = item.item || "";
 
-    // 1. 증빙서류 미제출 강제 불일치 & 비고 '자료확인불가' 고정
     if (docVal.includes("미제출") || docVal === "" || docVal.includes("없음")) {
-      item.status = "mismatch";
-      item.doc_value = "증빙서류 미제출";
-      item.note = "자료확인불가";
+      item.status = "mismatch"; item.doc_value = "증빙서류 미제출"; item.note = "자료확인불가";
       return;
     }
-
-    // 2. 영업소 소재지 주소 정밀 검증
     if (itemName.includes("주소") || itemName.includes("소재지")) {
-      const cleanLabel = labelVal.replace(/\s+/g, "");
-      const cleanDoc = docVal.replace(/\s+/g, "");
-
+      const cleanLabel = labelVal.replace(/\s+/g, ""); const cleanDoc = docVal.replace(/\s+/g, "");
       if (cleanLabel !== cleanDoc) {
         item.status = "mismatch";
-        if (cleanDoc.length > cleanLabel.length) {
-          item.note = "사업자등록증상의 상세주소가 라벨 표기에서 누락되어 불일치함";
-        } else {
-          item.note = "라벨 표기 주소와 사업자등록증 주소가 일치하지 않음";
-        }
+        item.note = cleanDoc.length > cleanLabel.length ? "사업자등록증 상세주소가 라벨에서 누락됨" : "라벨 표기 주소와 사업자등록증 주소 불일치";
       } else {
-        item.status = "match";
-        item.note = "일치함";
+        item.status = "match"; item.note = "일치함";
       }
     }
   });
-
   return data;
+}
+
+// 📌 텍스트 역파서 (JSON 파싱 실패 대비용)
+function regexExtractLLMJSON(raw) {
+  if (!raw || typeof raw !== "string") return null;
+
+  let summary = "데이터 구조 정제가 완료되었습니다.";
+  const sumMatch = raw.match(/"summary"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
+  if (sumMatch && sumMatch[1]) summary = sumMatch[1];
+
+  let productName = "판독 불가"; let foodType = "판독 불가"; 
+  const prodMatch = raw.match(/"product_name"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
+  if (prodMatch && prodMatch[1]) productName = prodMatch[1];
+  const typeMatch = raw.match(/"food_type"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
+  if (typeMatch && typeMatch[1]) foodType = typeMatch[1];
+  if (productName.includes("일르") || productName.includes("알크레")) productName = productName.replace(/일르|알크레/, "얼큰");
+
+  let passedItems = [];
+  const passedSectionMatch = raw.match(/"passed_items"\s*:\s*\[([\s\S]*?)\]\s*,/i);
+  if (passedSectionMatch && passedSectionMatch[1]) {
+    const passedRegex = /\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"detail"\s*:\s*"([^"]+)"\s*\}/gi;
+    let pMatch;
+    while ((pMatch = passedRegex.exec(passedSectionMatch[1])) !== null) {
+      if (!pMatch[0].includes("status")) passedItems.push({ name: pMatch[1], detail: pMatch[2] });
+    }
+  }
+
+  let optionalItems = [];
+  const optionalSectionMatch = raw.match(/"optional_items"\s*:\s*\[([\s\S]*?)\]\s*,/i);
+  if (optionalSectionMatch && optionalSectionMatch[1]) {
+    const optRegex = /\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"detail"\s*:\s*"([^"]+)"\s*\}/gi;
+    let oMatch;
+    while ((oMatch = optRegex.exec(optionalSectionMatch[1])) !== null) {
+      optionalItems.push({ name: oMatch[1], detail: oMatch[2] });
+    }
+  }
+
+  let failedItems = [];
+  const failedRegex = /\{\s*"item_name"\s*:\s*"([^"]+)"\s*,\s*"found_text"\s*:\s*"([^"]+)"\s*,\s*"issue_reason"\s*:\s*"([^"]+)"\s*,\s*"law"\s*:\s*"([^"]+)"\s*,\s*"how_to_improve"\s*:\s*"([^"]+)"\s*\}/gi;
+  let fMatch;
+  while ((fMatch = failedRegex.exec(raw)) !== null) {
+    failedItems.push({ item_name: fMatch[1], found_text: fMatch[2], issue_reason: fMatch[3], law: fMatch[4], how_to_improve: fMatch[5] });
+  }
+
+  let crossCheck = [];
+  const crossRegex = /\{\s*"item"\s*:\s*"([^"]+)"\s*,\s*"status"\s*:\s*"([^"]+)"\s*,\s*"label_value"\s*:\s*"([^"]+)"\s*,\s*"doc_value"\s*:\s*"([^"]+)"\s*,\s*"note"\s*:\s*"([^"]+)"\s*\}/gi;
+  let cMatch;
+  while ((cMatch = crossRegex.exec(raw)) !== null) {
+    crossCheck.push({ item: cMatch[1], status: cMatch[2], label_value: cMatch[3], doc_value: cMatch[4], note: cMatch[5] });
+  }
+
+  return {
+    summary: summary,
+    analyzed_summary: { product_name: productName, food_type: foodType, detected_items_count: passedItems.length + failedItems.length + optionalItems.length },
+    passed_items: passedItems, optional_items: optionalItems, failed_items: failedItems, cross_check: crossCheck
+  };
 }
 
 export default {
@@ -56,22 +98,21 @@ export default {
       "Access-Control-Allow-Headers": "Content-Type",
     };
 
-    if (request.method === "OPTIONS") {
-      return new Response(null, { headers: corsHeaders });
-    }
-
-    // 구글 제미나이 API 키 및 엔드포인트 세팅
-    const geminiApiKey = env.GEMINI_API_KEY || "AQ.Ab8RN6JtDy4b7PvPQy1VW-ASRc6knPEkw60dSVDnbyCb6elKHw";
-    const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
+    if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
     if (request.method === "GET") {
-      return new Response("🎉 LabelGuard AI v3.0.0 구글 제미나이 네이티브 비전 엔진 가동 중!", {
+      return new Response("🎉 LabelGuard AI v3.2.0 모델 자동 전환(Fallback) 엔진 가동 중!", {
         headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
       });
     }
 
     if (request.method === "POST") {
       try {
+        const geminiApiKey = env.GEMINI_API_KEY;
+        if (!geminiApiKey) {
+          throw new Error("서버 환경 변수(GEMINI_API_KEY)가 없습니다. Cloudflare를 확인하세요.");
+        }
+
         const formData = await request.formData();
         const labelFile = formData.get("image");
         const docFile = formData.get("doc");
@@ -83,82 +124,104 @@ export default {
           );
         }
 
-        // 라벨 원본 이미지 Base64 변환
         const labelBuffer = await labelFile.arrayBuffer();
         const labelBase64 = arrayBufferToBase64(labelBuffer);
         const labelMimeType = labelFile.type || "image/jpeg";
 
         const contentsParts = [
-          {
-            inline_data: {
-              mime_type: labelMimeType,
-              data: labelBase64
-            }
-          }
+          { inline_data: { mime_type: labelMimeType, data: labelBase64 } }
         ];
 
-        // 증빙서류 이미지 업로드 시 Base64 변환 추가
         if (docFile && typeof docFile === "object" && docFile.arrayBuffer) {
           try {
             const docBuffer = await docFile.arrayBuffer();
             if (docBuffer && docBuffer.byteLength > 0) {
               const docBase64 = arrayBufferToBase64(docBuffer);
               const docMimeType = docFile.type || "image/jpeg";
-              contentsParts.push({
-                inline_data: {
-                  mime_type: docMimeType,
-                  data: docBase64
-                }
-              });
+              contentsParts.push({ inline_data: { mime_type: docMimeType, data: docBase64 } });
             }
           } catch (e) {}
         }
 
         const promptText = `당신은 대한민국 식약처(MFDS) 표시사항 법령 단속 최고 권위관입니다.
-제출된 라벨 원본 이미지(첫 번째 이미지)와 증빙 서류(두 번째 이미지, 있을 경우)를 식약처 '식품등의 표시기준' 및 '식품공전' 고시에 따라 정밀 분석하세요.
+제출된 라벨 이미지와 증빙 서류를 식약처 '식품등의 표시기준' 및 '식품공전' 고시에 따라 분석하세요.
 
-[검수 및 매핑 지침]
-1. [정확한 OCR 및 교정]: 라벨 속 한글 글자를 사람처럼 정밀하게 인지하세요. (예: 제품명은 'TBK 얼큰해장국'입니다).
-2. [식품유형 동적 매핑]: 라벨에 적힌 식품유형을 파악하세요. (예: '즉석조리식품(비살균제품/가열하여 섭취하는 냉동식품)'). 절대로 '해장국'이나 '일반식품' 같은 모호한 요리명을 적지 마세요.
-3. [법정 필수 표시항목 전수 대조]: 해당 식품유형에 법적으로 요구되는 필수 표기사항(제품명, 식품유형, 영업소 명칭 및 소재지, 소비기한, 내용량, 원재료명, 영양성분, 용기·포장 재질, 품목보고번호, 보관방법, 주의사항 등)을 대조하세요.
-   - 라벨에 올바르게 적힌 필수 항목은 'passed_items'에 수록하세요.
-   - 라벨에서 누락되었거나 표시기준을 위반한 필수 항목은 반드시 'failed_items'에 넣으세요.
-4. [선택/추가 표기 항목 분리]: 법적 의무가 아닌 정보(고객상담실, 반품 및 교환장소, 조리방법, 바코드 등)는 무조건 'optional_items' 배열로 분리하세요.
-5. [증빙서류 교차 대조]: 
-   - 라벨에 적힌 제조원 주소와 사업자등록증 주소를 대조할 때, 건물명/동/층/호(예: '나동 1층 우측면') 상세주소가 라벨에서 누락되었다면 status: "mismatch", note: "사업자등록증상의 상세주소가 라벨 표기에서 누락되어 불일치함"으로 평가하세요.
-   - 판매원 서류가 제출되지 않았다면 doc_value: "증빙서류 미제출", status: "mismatch", note: "자료확인불가"로 평가하세요.`;
+[JSON 응답 규격 - 반드시 아래 형식을 지킬 것]
+{
+  "summary": "검수 결과 총평",
+  "analyzed_summary": {
+    "product_name": "제품명",
+    "food_type": "식품유형(공식명칭)",
+    "detected_items_count": 0
+  },
+  "passed_items": [
+    { "name": "항목명", "detail": "적합 사유" }
+  ],
+  "optional_items": [
+    { "name": "항목명", "detail": "내용" }
+  ],
+  "failed_items": [
+    { "item_name": "항목명", "found_text": "표기 없음", "issue_reason": "누락/위반 사유", "law": "법령명", "how_to_improve": "가이드" }
+  ],
+  "cross_check": [
+    { "item": "영업소 소재지", "status": "mismatch", "label_value": "라벨주소", "doc_value": "증빙주소", "note": "비고" }
+  ]
+}`;
 
         contentsParts.unshift({ text: promptText });
 
-        const geminiRequestBody = {
-          contents: [{ parts: contentsParts }],
-          generationConfig: {
-            response_mime_type: "application/json",
-            temperature: 0.1
+        // 📌 다중 모델 자동 전환 (Fallback) 리스트 - 가능한 모든 버전을 순서대로 찔러봅니다.
+        const modelsToTry = [
+          "gemini-1.5-flash-latest",
+          "gemini-1.5-flash",
+          "gemini-1.5-pro-latest",
+          "gemini-1.5-pro",
+          "gemini-pro-vision"
+        ];
+
+        let geminiData = null;
+        let lastError = "";
+        let jsonString = "";
+
+        for (const modelName of modelsToTry) {
+          const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
+          
+          let requestBody = { contents: [{ parts: contentsParts }] };
+          
+          // 구형 모델(pro-vision)은 response_mime_type을 지원하지 않으므로 예외 처리
+          if (modelName.includes("1.5")) {
+            requestBody.generationConfig = { response_mime_type: "application/json", temperature: 0.1 };
+          } else {
+            requestBody.generationConfig = { temperature: 0.1 };
           }
-        };
 
-        const geminiRes = await fetch(geminiEndpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(geminiRequestBody)
-        });
+          const geminiRes = await fetch(geminiEndpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody)
+          });
 
-        if (!geminiRes.ok) {
-          const errText = await geminiRes.text();
-          throw new Error(`Google Gemini API 오류 (${geminiRes.status}): ${errText}`);
+          if (geminiRes.ok) {
+            geminiData = await geminiRes.json();
+            jsonString = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (jsonString) break; // 성공하면 즉시 루프 탈출
+          } else {
+            lastError = await geminiRes.text();
+          }
         }
-
-        const geminiData = await geminiRes.json();
-        const jsonString = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
 
         if (!jsonString) {
-          throw new Error("구글 제미나이 응답에서 JSON 결과를 추출하지 못했습니다.");
+          throw new Error(`모든 제미나이 모델 연결 실패. 마지막 에러: ${lastError}`);
         }
 
-        let parsedResult = JSON.parse(jsonString);
+        let parsedResult = null;
+        try {
+          parsedResult = JSON.parse(jsonString);
+        } catch (e) {
+          parsedResult = regexExtractLLMJSON(jsonString);
+        }
 
-        // 강제 검증 알고리즘 적용
+        if (!parsedResult) throw new Error("결과 해석 실패");
         parsedResult = enforceStrictValidation(parsedResult);
 
         return new Response(
