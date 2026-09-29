@@ -2,7 +2,7 @@ export default {
   async fetch(request, env) {
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
     };
 
@@ -10,22 +10,38 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
+    const modelName = "@cf/meta/llama-3.2-11b-vision-instruct";
+
+    // 🔥 핵심 해결책: 인터넷 주소창으로 직접 접속했을 때 (GET 요청) 'agree' 자동 제출!
+    if (request.method === "GET") {
+      try {
+        const agreeResponse = await env.AI.run(modelName, { prompt: "agree" });
+        return new Response("✅ Meta AI 라이선스 동의가 완벽하게 성공했습니다!\n\n이제 돌아가서 라벨 사진을 업로드하고 분석을 시작하세요!\n(서버응답: " + JSON.stringify(agreeResponse) + ")", {
+          headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
+        });
+      } catch (err) {
+        return new Response("동의 시도 중 에러 발생 (새로고침 해보세요): " + err.message, {
+          headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
+        });
+      }
+    }
+
+    // 기존 프론트엔드 이미지 분석 (POST 요청)
     if (request.method === "POST") {
       try {
         if (!env.AI) {
-          return new Response(JSON.stringify({ success: false, error: "Cloudflare 대시보드에서 'AI' 바인딩 설정이 필요합니다." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ success: false, error: "AI 바인딩 필요" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
 
         const formData = await request.formData();
         const imageFile = formData.get("image");
 
         if (!imageFile) {
-          return new Response(JSON.stringify({ success: false, error: "이미지가 전송되지 않았습니다." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ success: false, error: "이미지 누락" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
         }
 
         const arrayBuffer = await imageFile.arrayBuffer();
         const imageBytes = Array.from(new Uint8Array(arrayBuffer));
-        const modelName = "@cf/meta/llama-3.2-11b-vision-instruct";
 
         const prompt = `당신은 대한민국 식약처 한글표시사항 및 표시·광고 법령 전문가입니다.
 제공된 이미지의 한글표시사항 텍스트를 분석하여 다음 규칙을 검토하세요.
@@ -54,43 +70,15 @@ export default {
   ]
 }`;
 
-        try {
-          // 본 요청 실행
-          const aiResponse = await env.AI.run(modelName, {
-            prompt: prompt,
-            image: imageBytes,
-          });
+        const aiResponse = await env.AI.run(modelName, {
+          prompt: prompt,
+          image: imageBytes,
+        });
 
-          return new Response(
-            JSON.stringify({ success: true, result: aiResponse.response || aiResponse }),
-            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-
-        } catch (aiErr) {
-          const errMsg = aiErr.message || String(aiErr);
-          
-          // 5016 약관 동의 에러인 경우
-          if (errMsg.includes("5016") || errMsg.includes("agree")) {
-            
-            // 약관 동의 요청 보내기 (이미지 없이 순수하게 agree만 전송)
-            try {
-              await env.AI.run(modelName, { prompt: "agree" });
-            } catch (e) {
-              // 무시 (정상 처리됨)
-            }
-            
-            // 사용자에게 안내 반환 (네트워크 동기화를 위해 대기 안내)
-            return new Response(
-              JSON.stringify({ 
-                success: false, 
-                error: "✅ Meta AI 라이선스 약관에 방금 자동 동의를 완료했습니다!\nCloudflare 전 세계 서버에 동기화되는 중입니다.\n\n[확인]을 누르시고 10초만 기다리신 후, 다시 한 번 [분석하기] 버튼을 눌러주세요!"
-              }),
-              { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-            );
-          }
-
-          throw aiErr;
-        }
+        return new Response(
+          JSON.stringify({ success: true, result: aiResponse.response || aiResponse }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
 
       } catch (err) {
         return new Response(
@@ -99,9 +87,5 @@ export default {
         );
       }
     }
-
-    return new Response("LabelGuard AI 백엔드 서버가 정상 작동 중입니다.", {
-      headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
-    });
   }
 };
