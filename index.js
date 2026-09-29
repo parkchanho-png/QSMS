@@ -12,15 +12,17 @@ export default {
 
     const modelName = "@cf/meta/llama-3.2-11b-vision-instruct";
 
-    // 1) 주소창 접속(GET) 시 Meta 약관 'agree' 자동 제출
+    // 1) 주소창 직접 접속(GET): Meta AI 약관 동의 실행 및 상태 출력
     if (request.method === "GET") {
       try {
-        await env.AI.run(modelName, { prompt: "agree" });
-        return new Response("🎉 Meta AI 약관 동의가 완벽하게 완료되었습니다!\n\n이제 원래 웹사이트로 돌아가서 라벨 분석을 진행해 주세요.", {
+        if (env.AI) {
+          await env.AI.run(modelName, { prompt: "agree" }).catch(() => {});
+        }
+        return new Response("🎉 Meta AI 약관 동의 및 백엔드 서버 준비가 완벽하게 완료되었습니다!\n\n이제 웹사이트(index.html)로 돌아가서 라벨 분석을 진행하세요.", {
           headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
         });
       } catch (err) {
-        return new Response("동의 처리 중 메시지: " + err.message, {
+        return new Response("서버 동작 중: " + err.message, {
           headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
         });
       }
@@ -30,14 +32,20 @@ export default {
     if (request.method === "POST") {
       try {
         if (!env.AI) {
-          return new Response(JSON.stringify({ success: false, error: "Workers AI 바인딩('AI')이 비어있습니다." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(
+            JSON.stringify({ success: false, error: "Workers AI 바인딩('AI')이 설정되지 않았습니다." }),
+            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
         }
 
         const formData = await request.formData();
         const imageFile = formData.get("image");
 
         if (!imageFile) {
-          return new Response(JSON.stringify({ success: false, error: "이미지 파일이 전달되지 않았습니다." }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          return new Response(
+            JSON.stringify({ success: false, error: "이미지 파일이 전달되지 않았습니다." }),
+            { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
         }
 
         const arrayBuffer = await imageFile.arrayBuffer();
@@ -70,8 +78,10 @@ export default {
   ]
 }`;
 
-        // 안전망: 분석 요청 직전에도 'agree' 사전 호출 실행
-        try { await env.AI.run(modelName, { prompt: "agree" }); } catch (e) {}
+        // 안전 장치: 이미지 요청 직전 약관 동의 사전 실행
+        try {
+          await env.AI.run(modelName, { prompt: "agree" });
+        } catch (e) {}
 
         const aiResponse = await env.AI.run(modelName, {
           prompt: prompt,
