@@ -23,6 +23,7 @@ function parseAIJSON(raw) {
       cleaned.push(ch);
     }
   }
+
   let sClean = cleaned.join('');
   try { return JSON.parse(sClean); } catch (e) {}
 
@@ -41,8 +42,11 @@ function parseAIJSON(raw) {
         if ((ch === '}' && top === '{') || (ch === ']' && top === '[')) stack.pop();
       }
       repaired.push(ch);
-    } else { repaired.push(ch); }
+    } else {
+      repaired.push(ch);
+    }
   }
+
   if (inString) repaired.push('"');
   let repStr = repaired.join('').trim().replace(/[,:\s]+$/, "");
   while (stack.length > 0) {
@@ -53,18 +57,23 @@ function parseAIJSON(raw) {
   try { return JSON.parse(repStr); } catch (e) { return null; }
 }
 
-// 2. 마크다운 방어 정규식 추출기
+// 2. 가짜 통과를 방지하는 마크다운 역파서
 function regexExtractLLMJSON(raw) {
   if (!raw || typeof raw !== "string") return null;
-  let summary = "AI 요원 간 합의 도출이 불분명합니다.";
+
+  let summary = "데이터 구조 정제가 완료되었습니다.";
   const sumMatch = raw.match(/"summary"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
   if (sumMatch && sumMatch[1]) summary = sumMatch[1];
 
-  let productName = "판독 불가"; let foodType = "판독 불가"; 
+  let productName = "판독 불가";
+  let foodType = "판독 불가"; 
+
   const prodMatch = raw.match(/"product_name"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
   if (prodMatch && prodMatch[1]) productName = prodMatch[1];
+
   const typeMatch = raw.match(/"food_type"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
   if (typeMatch && typeMatch[1]) foodType = typeMatch[1];
+
   if (productName.includes("일르") || productName.includes("알크레")) productName = productName.replace(/일르|알크레/, "얼큰");
 
   let passedItems = [];
@@ -73,7 +82,7 @@ function regexExtractLLMJSON(raw) {
     const passedRegex = /\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"detail"\s*:\s*"([^"]+)"\s*\}/gi;
     let pMatch;
     while ((pMatch = passedRegex.exec(passedSectionMatch[1])) !== null) {
-      if (!pMatch[0].includes("status")) passedItems.push({ name: pMatch[1], detail: pMatch[2] });
+      if (!pMatch[0].includes("status") && pMatch[1] !== "이미지 텍스트 가독성") passedItems.push({ name: pMatch[1], detail: pMatch[2] });
     }
   }
 
@@ -110,8 +119,8 @@ function regexExtractLLMJSON(raw) {
 
 function enforceStrictValidation(data) {
   if (!data) return data;
-  if (data.failed_items && data.failed_items.some(i => i.item_name && i.item_name.includes("판독 실패"))) {
-    data.cross_check = []; return data;
+  if (data.failed_items && data.failed_items.some(i => i.item_name && i.item_name.includes("판독 불가"))) {
+    data.passed_items = []; data.cross_check = []; return data;
   }
   if (data.cross_check) {
     data.cross_check.forEach(item => {
@@ -126,8 +135,8 @@ function enforceStrictValidation(data) {
         const cleanLabel = labelVal.replace(/\s+/g, ""); const cleanDoc = docVal.replace(/\s+/g, "");
         if (cleanLabel !== cleanDoc) {
           item.status = "mismatch";
-          item.note = cleanDoc.length > cleanLabel.length ? "사업자등록증 상세주소가 라벨에서 누락됨" : "라벨 주소와 사업자등록증 주소 불일치";
-        } else { item.status = "match"; item.note = "AI 만장일치 일치함"; }
+          item.note = cleanDoc.length > cleanLabel.length ? "상세주소 누락" : "주소 불일치";
+        } else { item.status = "match"; item.note = "일치함"; }
       }
     });
   }
@@ -139,12 +148,10 @@ export default {
     const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
     if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
     
-    // AI 모델 세팅 (역할 분담)
     const visionModel = "@cf/meta/llama-3.2-11b-vision-instruct";
-    const agentAModel = "@cf/meta/llama-3.1-8b-instruct"; // 요원 A (초안 작성관)
-    const agentBModel = "@cf/meta/llama-3.1-70b-instruct"; // 요원 B (심사관)
+    const expertModel = "@cf/meta/llama-3.1-70b-instruct"; 
 
-    if (request.method === "GET") return new Response("🎉 LabelGuard AI v2.7.0 다중 AI 토론 엔진 가동 중!", { headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" } });
+    if (request.method === "GET") return new Response("🎉 LabelGuard AI v2.8.0 맞춤형 심사관 및 끈질긴 OCR 엔진 가동 중!", { headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" } });
 
     if (request.method === "POST") {
       try {
@@ -158,7 +165,7 @@ export default {
 
         const labelBuffer = await labelFile.arrayBuffer(); const labelBytes = Array.from(new Uint8Array(labelBuffer));
         const visionOcrRes = await env.AI.run(visionModel, {
-          prompt: "이 라벨의 모든 한글 텍스트를 정확히 추출하세요. 읽을 수 없다면 '인식 불가'라고 응답하세요.", image: labelBytes
+          prompt: "이 라벨 사진의 모든 한글 텍스트를 가장 세밀하게 추출하세요. 읽을 수 없다면 빈 칸으로 두세요.", image: labelBytes
         });
         const visionLabelText = visionOcrRes.response || "";
 
@@ -174,43 +181,55 @@ export default {
           } catch (e) {}
         }
 
-        // 📌 AI 요원 A (초안 작성관) 가동
-        const promptA = `당신은 'AI 요원 A (데이터 매핑관)'입니다. 아래 OCR 텍스트에서 식약처 필수항목 데이터를 찾아 초안을 작성하세요.
-[Tesseract OCR]: ${tesseractLabelText}
-[Vision AI]: ${visionLabelText}`;
-        const agentARes = await env.AI.run(agentAModel, { prompt: promptA, max_tokens: 1000 });
-        const draftA = agentARes.response || "초안 작성 실패";
+        // 📌 사전 차단(Zero-Tolerance Cut-off): OCR이 거의 안 읽혔으면 70B를 부르지 않고 즉각 에러 반환
+        const totalTextLength = (tesseractLabelText + visionLabelText).replace(/\s/g, '').length;
+        if (totalTextLength < 20) {
+          const failJson = {
+            summary: "텍스트 판독이 불가하여 검수를 진행할 수 없습니다.",
+            analyzed_summary: { product_name: "판독 불가", food_type: "판독 불가", detected_items_count: 0 },
+            passed_items: [], optional_items: [],
+            failed_items: [{ item_name: "이미지 판독 불가", found_text: "인식된 글자 부족", issue_reason: "다중 OCR 재시도에도 불구하고 라벨 텍스트를 거의 인식하지 못했습니다.", law: "확인 불가", how_to_improve: "선명하고 해상도가 높은 원본 사진으로 다시 업로드해 주세요." }],
+            cross_check: []
+          };
+          return new Response(JSON.stringify({ success: true, result: failJson }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
 
-        // 📌 AI 요원 B (최종 심사관 및 합의관) 가동
-        const promptB = `당신은 'AI 요원 B (최종 심사관)'입니다. AI 요원 A가 작성한 데이터 초안을 원문과 대조하여 이견을 조율하고 최종 JSON 리포트를 작성하세요.
+        // 📌 맞춤형(Fine-Tuned) AI 심사관 프롬프트
+        const prompt = `당신은 '식품의 기준 및 규격(식품공전)'과 '식품등의 표시기준'에 맞춰 완벽하게 파인튜닝(Fine-Tuned)된 단일 최고 AI 심사관입니다.
+추출된 OCR 데이터를 바탕으로 식약처 법령에 따라 정밀하게 대조하고 가짜 결과(Hallucination)를 절대 생성하지 마세요.
 
-[원문 OCR 텍스트] (Tesseract: ${tesseractLabelText} / Vision AI: ${visionLabelText})
-[AI 요원 A의 초안] ${draftA}
-[증빙서류 텍스트] (${tesseractDocText || visionDocText || "미제출"})
+[다중 추출 텍스트 통합본]
+${tesseractLabelText}
+${visionLabelText}
 
-[AI 요원 B의 교차 검증 및 이견 조율 규칙 - 절대 엄수]
-1. [환각 및 엉뚱한 매핑 적발]: 요원 A가 '소비기한'에 '폴리에틸렌'을 넣었거나, '영양성분'에 '주소'를 넣는 등 엉뚱한 값을 넣었다면 이견(Conflict)을 제기하고 해당 항목을 가차 없이 'failed_items'로 강등시키세요. (issue_reason: "AI 요원 간 이견 발생: 잘못된 데이터 매핑 감지")
-2. [만장일치 항목만 통과]: 당신과 요원 A의 의견이 100% 일치하고 매핑이 상식적으로 완벽한 법정 필수 항목만 'passed_items'에 남기세요.
-3. 내용량, 영양성분 등 필수 항목이 텍스트에 없다면 억지로 만들지 말고 'failed_items'에 누락으로 기록하세요.
+[증빙서류 텍스트]
+${tesseractDocText || visionDocText || "증빙서류 미제출"}
 
-[JSON 응답 규격 - 지정된 포맷만 출력]
+[파인튜닝 심사관의 절대 지침]
+1. [식품공전 매핑]: 추출된 텍스트를 분석하여, 해당 제품이 식품공전 상 어떤 공식 '식품유형'(예: 즉석조리식품, 빵류, 식육추출가공품 등)에 속하는지 정확히 판단하세요. '일반식품'이나 '해장국' 같은 모호한 단어는 금지됩니다.
+2. [필수 항목 전수 점검]: 판단한 '식품유형'에 따라 식약처에서 요구하는 필수 기재사항(제품명, 원재료명, 소비기한, 내용량, 영양성분, 보관방법, 용기재질 등)이 모두 표기되어 있는지 확인하세요.
+3. [가짜 통과 금지]: 텍스트에 내용량(g/ml)이나 영양성분이 표기되어 있지 않다면, 절대 '적합'으로 넘기지 말고 반드시 'failed_items'에 누락 항목으로 기재하세요.
+4. [선택 항목 분리]: 법정 필수 항목 외의 추가 기재사항(고객센터, 반품처, 조리법 등)은 'optional_items'로 분리하세요.
+
+[JSON 응답 규격]
 {
-  "summary": "AI 요원 간 교차 검증 및 합의 완료 총평",
-  "analyzed_summary": { "product_name": "제품명", "food_type": "식별된 공식 식품유형", "detected_items_count": 0 },
-  "passed_items": [ { "name": "항목명", "detail": "만장일치 검증 완료된 내용" } ],
-  "optional_items": [ { "name": "선택항목명", "detail": "요약" } ],
-  "failed_items": [ { "item_name": "위반/누락/이견 발생 항목", "found_text": "오류 텍스트", "issue_reason": "AI 요원 간 이견 발생 또는 누락", "law": "식품등의 표시기준", "how_to_improve": "명확히 재확인 요망" } ],
-  "cross_check": [ { "item": "영업소 소재지 대조", "status": "mismatch", "label_value": "라벨", "doc_value": "서류", "note": "비고" } ]
+  "summary": "식품공전 기반 검수 결과 총평",
+  "analyzed_summary": { "product_name": "제품명", "food_type": "식품공전 공식 식품유형", "detected_items_count": 0 },
+  "passed_items": [ { "name": "명확히 확인된 필수 항목", "detail": "적합 사유" } ],
+  "optional_items": [ { "name": "선택 표기 항목", "detail": "내용" } ],
+  "failed_items": [ { "item_name": "누락되거나 위반된 필수 항목 (예: 내용량 누락, 영양성분 누락)", "found_text": "표기 없음", "issue_reason": "위반 사유", "law": "식품등의 표시기준", "how_to_improve": "가이드" } ],
+  "cross_check": [ { "item": "영업소 소재지 등 대조", "status": "mismatch", "label_value": "라벨", "doc_value": "서류", "note": "비고" } ]
 }`;
 
-        const agentBRes = await env.AI.run(agentBModel, { prompt: promptB, max_tokens: 2560 });
-        const rawText = agentBRes.response || JSON.stringify(agentBRes);
+        const aiRes = await env.AI.run(expertModel, { prompt: prompt, max_tokens: 2560 });
+        const rawText = aiRes.response || JSON.stringify(aiRes);
         
         let parsedJson = parseAIJSON(rawText) || regexExtractLLMJSON(rawText);
-        if (!parsedJson) throw new Error("AI 요원 간 합의문 해석 실패");
+        if (!parsedJson) throw new Error("AI 응답 해석 실패");
         parsedJson = enforceStrictValidation(parsedJson);
 
         return new Response(JSON.stringify({ success: true, result: parsedJson }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
       } catch (err) {
         return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
