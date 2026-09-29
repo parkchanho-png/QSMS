@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LabelGuard AI - 식약처 법령 검수 v2.4.0</title>
+  <title>LabelGuard AI - 다중 OCR 교차검증 v2.5.0</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     :root {
@@ -67,8 +67,8 @@
 
 <div class="container">
   <div class="header">
-    <h1>🛡️ LabelGuard AI <span class="version-badge">v2.4.0</span></h1>
-    <p>식품유형 동적 매핑 및 OCR 에러 감지 관제 시스템</p>
+    <h1>🛡️ LabelGuard AI <span class="version-badge">v2.5.0</span></h1>
+    <p>다중 OCR 앙상블 교차검증 & 식약처 법령 정밀 관제 시스템</p>
   </div>
 
   <div class="card">
@@ -88,7 +88,7 @@
         <input type="file" id="docInput" accept="image/*">
       </div>
     </div>
-    <button class="btn" onclick="analyzeData()">식약처 고시 기준 정밀 검수 시작</button>
+    <button class="btn" onclick="analyzeData()">다중 OCR 교차 검수 시작</button>
   </div>
 
   <div class="loading" id="loading">
@@ -111,10 +111,10 @@
 
     <div class="report-pane">
       <div class="card">
-        <h2 style="margin-top:0; font-size:1.3rem;">📋 식약처 고시 항목 동적 검수 리포트</h2>
+        <h2 style="margin-top:0; font-size:1.3rem;">📋 다중 OCR & 식약처 고시 검수 리포트</h2>
         <div class="summary-box" id="summaryText"></div>
 
-        <h3>🔍 1. 분석 개요 (식품공전 기준 매핑)</h3>
+        <h3>🔍 1. 분석 개요 (데이터 앙상블 복원)</h3>
         <div class="overview-grid">
           <div class="overview-item">
             <span>추출 및 교정 제품명</span>
@@ -238,7 +238,7 @@
 
     let labelText = "", docText = "";
     try {
-      loadingMsg.innerText = "🔍 1단계: 브라우저 이미지 선명화 및 Tesseract OCR 판독 중...";
+      loadingMsg.innerText = "🔍 1단계: 엔진 A (Tesseract.js) 이미지 판독 중...";
       try {
         const processedLabelBlob = await preprocessImage(labelFile);
         const labelOcrResult = await Tesseract.recognize(processedLabelBlob, 'kor+eng');
@@ -255,7 +255,7 @@
         } catch (e) {}
       }
 
-      loadingMsg.innerText = "🔍 3단계: 식품유형 동적 파악 및 법령 맞춤 검수 중...";
+      loadingMsg.innerText = "🔍 3단계: 엔진 B 연동 및 다중 OCR 데이터 교차 검증 중...";
       const formData = new FormData();
       formData.append("image", labelFile);
       if (docFile) formData.append("doc", docFile);
