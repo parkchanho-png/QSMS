@@ -40,6 +40,21 @@
       font-size: 2.2rem;
       color: var(--primary);
       margin: 0 0 8px 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .version-badge {
+      font-size: 0.85rem;
+      background-color: #e2e8f0;
+      color: #475569;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
+      border: 1px solid #cbd5e1;
     }
 
     .card {
@@ -197,7 +212,10 @@
 
 <div class="container">
   <div class="header">
-    <h1>🛡️ LabelGuard AI</h1>
+    <h1>
+      🛡️ LabelGuard AI
+      <span class="version-badge">v1.1.0</span>
+    </h1>
     <p>식약처 표시사항 법령 검수 & 증빙서류 정밀 대조 리포트</p>
   </div>
 
@@ -365,7 +383,7 @@
     if (res.cross_check && res.cross_check.length > 0) {
       res.cross_check.forEach(item => {
         const tr = document.createElement("tr");
-        const isMatch = item.status === "match" || item.status === "pass";
+        const isMatch = item.status === "match" || item.status === "pass" || item.status === "일치";
         const statusBadge = isMatch 
           ? '<span class="badge badge-pass">일치</span>' 
           : '<span class="badge badge-fail">불일치</span>';
