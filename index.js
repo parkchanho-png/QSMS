@@ -57,7 +57,7 @@ function parseAIJSON(raw) {
   try { return JSON.parse(repStr); } catch (e) { return null; }
 }
 
-// 2. 마크다운 방어 정규식 추출기 (OCR 실패 감지 로직 추가)
+// 2. 마크다운 방어 정규식 추출기
 function regexExtractLLMJSON(raw) {
   if (!raw || typeof raw !== "string") return null;
 
@@ -73,8 +73,6 @@ function regexExtractLLMJSON(raw) {
 
   const typeMatch = raw.match(/"food_type"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
   if (typeMatch && typeMatch[1]) foodType = typeMatch[1];
-
-  if (productName.includes("일르") || productName.includes("알크레")) productName = productName.replace(/일르|알크레/, "얼큰");
 
   let passedItems = [];
   const passedSectionMatch = raw.match(/"passed_items"\s*:\s*\[([\s\S]*?)\]\s*,/i);
@@ -114,15 +112,14 @@ function regexExtractLLMJSON(raw) {
     });
   }
 
-  // 📌 OCR 판독 실패 또는 AI 환각 시 정직한 에러 처리 (가짜 데이터 방지)
   if (passedItems.length === 0 && failedItems.length === 0 && optionalItems.length === 0) {
-    summary = "이미지 텍스트를 제대로 인식하지 못해 검수를 진행할 수 없습니다.";
+    summary = "다중 OCR 엔진이 이미지 텍스트를 제대로 인식하지 못해 검수를 진행할 수 없습니다.";
     failedItems.push({
-      item_name: "텍스트 판독 실패",
+      item_name: "다중 OCR 판독 실패",
       found_text: "인식된 데이터 없음",
-      issue_reason: "이미지 해상도가 낮거나 배경색/폰트 문제로 인해 OCR 엔진이 라벨 텍스트를 정상적으로 추출하지 못했습니다.",
+      issue_reason: "이미지 해상도 및 폰트 문제로 Tesseract와 Vision AI 모두 판독에 실패했습니다.",
       law: "판독 불가",
-      how_to_improve: "빛 반사가 없고 글자가 선명하게 보이는 이미지를 다시 업로드해 주세요."
+      how_to_improve: "선명한 이미지를 다시 업로드해 주세요."
     });
   }
 
@@ -140,15 +137,12 @@ function regexExtractLLMJSON(raw) {
   };
 }
 
+// 3. 증빙서류 강제 검증 로직
 function enforceStrictValidation(data) {
   if (!data) return data;
-  
-  // OCR 실패 상태면 주소 대조 생략
-  if (data.failed_items && data.failed_items.some(i => i.item_name === "텍스트 판독 실패")) {
-    data.cross_check = [];
-    return data;
+  if (data.failed_items && data.failed_items.some(i => i.item_name.includes("판독 실패"))) {
+    data.cross_check = []; return data;
   }
-
   if (data.cross_check) {
     data.cross_check.forEach(item => {
       const labelVal = (item.label_value || "").trim();
@@ -159,7 +153,6 @@ function enforceStrictValidation(data) {
         item.status = "mismatch"; item.doc_value = "증빙서류 미제출"; item.note = "자료확인불가";
         return;
       }
-
       if (itemName.includes("주소") || itemName.includes("소재지")) {
         const cleanLabel = labelVal.replace(/\s+/g, "");
         const cleanDoc = docVal.replace(/\s+/g, "");
@@ -193,7 +186,7 @@ export default {
     const textModel = "@cf/meta/llama-3.1-70b-instruct";
 
     if (request.method === "GET") {
-      return new Response("🎉 LabelGuard AI v2.4.0 식품유형 동적 매핑 & 에러 감지 엔진 가동 중!", {
+      return new Response("🎉 LabelGuard AI v2.5.0 다중 OCR 교차 검증 엔진 가동 중!", {
         headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
       });
     }
@@ -233,21 +226,28 @@ export default {
           } catch (e) {}
         }
 
-        const prompt = `당신은 대한민국 식약처 표시사항 법령 단속관입니다.
-[OCR 추출 텍스트] (Tesseract: ${tesseractLabelText} / Vision AI: ${visionLabelText})
-[증빙서류 텍스트] (${tesseractDocText || visionDocText || "증빙서류 미제출"})
+        // 📌 다중 OCR 앙상블 및 교차 검증 알고리즘 프롬프트
+        const prompt = `당신은 대한민국 식약처 전문 표시사항 검수관이자 '다중 OCR 데이터 교차 검증(Ensemble) 전문가'입니다.
+두 가지 다른 AI 엔진이 추출한 데이터를 비교 분석하여 최종 정밀 검수를 수행하세요.
 
-[완벽 검수 4대 지침 - 절대 엄수]
-1. [OCR 판독 점검]: 제공된 OCR 텍스트가 의미 없는 기호투성이거나 내용이 거의 없다면, 절대 지어내지 말고 failed_items에 "텍스트 판독 실패" 1개만 넣고 검수를 중단하세요.
-2. [식품공전 동적 매핑]: 추출된 텍스트에서 '식품유형'을 먼저 파악하세요 (예: 즉석조리식품, 빵류, 도자기제 등). 그리고 대한민국 '식품등의 표시기준'에 따라 **해당 특정 식품유형에만 요구되는 필수 표시사항 목록을 동적으로 구성하여 비교**하세요. (모든 품목이 내용량, 영양성분을 요구하지 않으므로 유형에 맞게 대조할 것).
-3. [필수 vs 선택 분리]: 해당 유형의 '법정 의무 표기사항'만 passed_items(적합) 또는 failed_items(누락)로 평가하세요. 법적 의무가 없는 정보(조리방법, 소비자상담실, 반품처 등)는 모두 'optional_items' 배열로 분리하세요.
-4. [교차 대조]: 증빙서류 미제출시 판매원은 status: "mismatch", note: "자료확인불가" 처리.
+[다중 OCR 추출 텍스트]
+- 엔진 A (Tesseract.js): ${tesseractLabelText || "인식 실패"}
+- 엔진 B (Vision AI): ${visionLabelText || "인식 실패"}
+
+[증빙서류 텍스트]
+${tesseractDocText || visionDocText || "증빙서류 미제출"}
+
+[다중 OCR 교차 검증 및 식약처 검수 지침]
+1. [데이터 앙상블 복원]: 엔진 A와 엔진 B의 결과를 글자 단위로 교차 검증하세요. 한 엔진에서 '알크레'라고 오독했더라도, 다른 엔진의 데이터나 당신의 식품 도메인 지식을 활용해 올바른 단어('얼큰')로 100% 복원해 내야 합니다.
+2. [판독 불가 판단]: 두 엔진 모두에서 의미 있는 식약처 필수항목 관련 한글 텍스트를 찾을 수 없다면, 억지로 지어내지 말고 failed_items에 "다중 OCR 판독 실패" 하나만 넣고 종료하세요.
+3. [식품유형 동적 매핑]: 복원된 텍스트를 바탕으로 정확한 '식품유형'을 파악하고, 대한민국 식품공전 기준 해당 유형에 반드시 표기되어야 하는 법정 필수 항목만 선별하여 누락 여부를 대조하세요.
+4. [필수 vs 선택 분리]: 법정 필수 항목은 'passed_items'나 'failed_items'에, 소비자상담실/반품처 등 자율 추가 항목은 'optional_items' 배열에 분리하세요.
 
 [JSON 응답 규격]
 {
-  "summary": "검수 결과 총평 (또는 판독 실패 안내)",
+  "summary": "다중 OCR 교차 검증 결과 총평",
   "analyzed_summary": {
-    "product_name": "제품명",
+    "product_name": "교차 검증으로 복원된 정확한 제품명",
     "food_type": "식별된 식품유형",
     "detected_items_count": 0
   },
@@ -258,7 +258,7 @@ export default {
     { "name": "선택/추가 항목", "detail": "내용 요약" }
   ],
   "failed_items": [
-    { "item_name": "위반/누락 항목명", "found_text": "검출 문구", "issue_reason": "누락/위반 사유", "law": "관련 법령", "how_to_improve": "가이드" }
+    { "item_name": "위반/누락 항목명", "found_text": "검출 문구", "issue_reason": "누락 사유", "law": "관련 법령", "how_to_improve": "가이드" }
   ],
   "cross_check": [
     { "item": "대조 항목", "status": "mismatch", "label_value": "라벨", "doc_value": "서류", "note": "비고" }
@@ -270,10 +270,7 @@ export default {
         
         let parsedJson = parseAIJSON(rawText) || regexExtractLLMJSON(rawText);
 
-        if (!parsedJson) {
-          throw new Error("AI 응답 해석 실패");
-        }
-
+        if (!parsedJson) throw new Error("AI 응답 해석 실패");
         parsedJson = enforceStrictValidation(parsedJson);
 
         return new Response(JSON.stringify({ success: true, result: parsedJson }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
