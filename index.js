@@ -1,4 +1,4 @@
-// AI 응답 텍스트 구문 보정 및 파싱 함수
+// AI 응답 구문 보정 및 파싱 함수
 function parseAIJSON(raw) {
   if (!raw) return null;
   let str = typeof raw === "string" ? raw : JSON.stringify(raw);
@@ -72,10 +72,11 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
+    const visionModel = "@cf/meta/llama-3.2-11b-vision-instruct";
     const textModel = "@cf/qwen/qwen2.5-72b-instruct";
 
     if (request.method === "GET") {
-      return new Response("🎉 LabelGuard AI v1.3.0 (Tesseract OCR + Cloudflare 72B LLM) 가동 중!", {
+      return new Response("🎉 LabelGuard AI v1.4.0 백엔드가 정상 가동 중입니다!", {
         headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
       });
     }
@@ -90,18 +91,51 @@ export default {
         }
 
         const formData = await request.formData();
-        const labelText = formData.get("labelText") || "";
-        const docText = formData.get("docText") || "";
+        const labelFile = formData.get("image");
+        const docFile = formData.get("doc");
+        let labelText = formData.get("labelText") || "";
+        let docText = formData.get("docText") || "";
 
-        if (!labelText) {
+        if (!labelText && !labelFile) {
           return new Response(
-            JSON.stringify({ success: false, error: "인식된 라벨 텍스트가 전달되지 않았습니다." }),
+            JSON.stringify({ success: false, error: "라벨/광고 이미지가 전송되지 않았습니다." }),
             { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
 
+        try { await env.AI.run(visionModel, { prompt: "agree" }); } catch (e) {}
+
+        // Fallback: labelText가 없거나 너무 짧은 경우 Vision AI로 백엔드 OCR 실행
+        if ((!labelText || labelText.trim().length < 5) && labelFile && typeof labelFile === "object") {
+          try {
+            const labelBuffer = await labelFile.arrayBuffer();
+            const labelBytes = Array.from(new Uint8Array(labelBuffer));
+            const ocrRes = await env.AI.run(visionModel, {
+              prompt: "이 식품 라벨 이미지의 모든 한글/영문 텍스트를 읽어서 출력하세요.",
+              image: labelBytes
+            });
+            labelText = ocrRes.response || JSON.stringify(ocrRes);
+          } catch (e) {}
+        }
+
+        // Fallback: docText가 없으면 Vision AI로 증빙서류 OCR 실행
+        if ((!docText || docText.trim().length < 5) && docFile && typeof docFile === "object" && docFile.arrayBuffer) {
+          try {
+            const docBuffer = await docFile.arrayBuffer();
+            if (docBuffer && docBuffer.byteLength > 0) {
+              const docBytes = Array.from(new Uint8Array(docBuffer));
+              const docOcrRes = await env.AI.run(visionModel, {
+                prompt: "이 증빙서류의 모든 한글/영문 텍스트를 읽어서 출력하세요.",
+                image: docBytes
+              });
+              docText = docOcrRes.response || JSON.stringify(docOcrRes);
+            }
+          } catch (e) {}
+        }
+
+        // 72B 대형 AI 분석
         const prompt = `당신은 대한민국 식품의약품안전처(MFDS) 한글표시사항 법령 단속 및 증빙서류 검수 전문관입니다.
-브라우저 OCR을 통해 추출된 [1. 라벨 OCR 텍스트] 및 [2. 증빙서류 OCR 텍스트]를 정밀 검수하세요.
+[1. 라벨 OCR 텍스트] 및 [2. 증빙서류 OCR 텍스트]를 정밀 검수하세요.
 
 [1. 라벨 OCR 텍스트]
 ${labelText}
@@ -110,10 +144,10 @@ ${labelText}
 ${docText || "제출된 증빙서류 없음"}
 
 [검수 가이드라인]
-1. 'analyzed_summary': [1. 라벨 OCR 텍스트]에서 직접 확인된 정확한 제품명(예: 빽다방 아이스크림컵)과 식품유형/재질(예: 도자기 / 기구용품)을 작성하세요.
+1. 'analyzed_summary': [1. 라벨 OCR 텍스트]에서 확인된 실제 제품명과 식품유형/재질을 작성하세요.
 2. 'passed_items': 올바르게 표기된 항목(제품명, 규격, 재질, 원산지, 제조원, 판매원 등)을 정리하세요.
-3. 'failed_items': 식품위생법/식품등의 표시광고에 관한 법률 위반 문구 및 개선 가이드를 작성하세요. 위반사항이 없으면 빈 배열 []로 두세요.
-4. 'cross_check': 증빙서류(사업자등록증 등)가 제공된 경우, 라벨의 제조원/판매원 상호 및 사업장 주소와 사업자등록증의 법인명/주소가 일치하는지 비교 대조하세요.
+3. 'failed_items': 위반 문구 및 개선 가이드를 작성하세요. 위반사항이 없으면 빈 배열 []로 두세요.
+4. 'cross_check': 증빙서류(사업자등록증 등)가 제공된 경우 라벨 제조원/판매원 상호 및 주소와 증빙서류 법인명/주소를 비교 대조하세요.
 
 [응답 JSON 규격 - 오직 아래 JSON 구조로만 답변하세요]
 {
@@ -140,7 +174,7 @@ ${docText || "제출된 증빙서류 없음"}
 
         if (!parsedJson) {
           parsedJson = {
-            summary: "라벨 및 증빙서류 검수가 성공적으로 완료되었습니다.",
+            summary: "라벨 및 증빙서류 검수가 완료되었습니다.",
             analyzed_summary: { product_name: "인식된 제품", food_type: "식품/기구용품", detected_items_count: 5 },
             passed_items: [{ name: "OCR 텍스트 추출", detail: labelText.substring(0, 100) }],
             failed_items: [],
