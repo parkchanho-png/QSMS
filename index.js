@@ -1,4 +1,3 @@
-// ArrayBuffer -> Base64 변환 도우미
 function arrayBufferToBase64(buffer) {
   let binary = '';
   const bytes = new Uint8Array(buffer);
@@ -9,7 +8,6 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
-// 📌 백엔드 강제 정밀 검증
 function enforceStrictValidation(data) {
   if (!data || !data.cross_check) return data;
   data.cross_check.forEach(item => {
@@ -25,7 +23,7 @@ function enforceStrictValidation(data) {
       const cleanLabel = labelVal.replace(/\s+/g, ""); const cleanDoc = docVal.replace(/\s+/g, "");
       if (cleanLabel !== cleanDoc) {
         item.status = "mismatch";
-        item.note = cleanDoc.length > cleanLabel.length ? "사업자등록증 상세주소가 라벨에서 누락됨" : "라벨 표기 주소와 사업자등록증 주소 불일치";
+        item.note = cleanDoc.length > cleanLabel.length ? "사업자등록증 상세주소가 라벨 표기에서 누락됨" : "라벨 표기 주소와 사업자등록증 주소 불일치";
       } else {
         item.status = "match"; item.note = "일치함";
       }
@@ -34,7 +32,6 @@ function enforceStrictValidation(data) {
   return data;
 }
 
-// 📌 텍스트 역파서 (JSON 파싱 실패 대비용)
 function regexExtractLLMJSON(raw) {
   if (!raw || typeof raw !== "string") return null;
 
@@ -42,12 +39,11 @@ function regexExtractLLMJSON(raw) {
   const sumMatch = raw.match(/"summary"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
   if (sumMatch && sumMatch[1]) summary = sumMatch[1];
 
-  let productName = "판독 불가"; let foodType = "판독 불가"; 
+  let productName = "판독 불가"; let foodType = "분류 불가"; 
   const prodMatch = raw.match(/"product_name"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
   if (prodMatch && prodMatch[1]) productName = prodMatch[1];
   const typeMatch = raw.match(/"food_type"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
   if (typeMatch && typeMatch[1]) foodType = typeMatch[1];
-  if (productName.includes("일르") || productName.includes("알크레")) productName = productName.replace(/일르|알크레/, "얼큰");
 
   let passedItems = [];
   const passedSectionMatch = raw.match(/"passed_items"\s*:\s*\[([\s\S]*?)\]\s*,/i);
@@ -84,7 +80,7 @@ function regexExtractLLMJSON(raw) {
   }
 
   return {
-    summary: summary,
+    summary,
     analyzed_summary: { product_name: productName, food_type: foodType, detected_items_count: passedItems.length + failedItems.length + optionalItems.length },
     passed_items: passedItems, optional_items: optionalItems, failed_items: failedItems, cross_check: crossCheck
   };
@@ -101,7 +97,7 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
     if (request.method === "GET") {
-      return new Response("🎉 LabelGuard AI v3.2.0 모델 자동 전환(Fallback) 엔진 가동 중!", {
+      return new Response("🎉 LabelGuard AI v3.2.0 API 시크릿 보호 및 다중 모델 엔진 가동 중!", {
         headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
       });
     }
@@ -110,7 +106,7 @@ export default {
       try {
         const geminiApiKey = env.GEMINI_API_KEY;
         if (!geminiApiKey) {
-          throw new Error("서버 환경 변수(GEMINI_API_KEY)가 없습니다. Cloudflare를 확인하세요.");
+          throw new Error("서버 환경 변수(GEMINI_API_KEY)가 설정되지 않았습니다. Cloudflare 대시보드를 확인하세요.");
         }
 
         const formData = await request.formData();
@@ -126,114 +122,72 @@ export default {
 
         const labelBuffer = await labelFile.arrayBuffer();
         const labelBase64 = arrayBufferToBase64(labelBuffer);
-        const labelMimeType = labelFile.type || "image/jpeg";
-
-        const contentsParts = [
-          { inline_data: { mime_type: labelMimeType, data: labelBase64 } }
-        ];
+        const contentsParts = [{ inline_data: { mime_type: labelFile.type || "image/jpeg", data: labelBase64 } }];
 
         if (docFile && typeof docFile === "object" && docFile.arrayBuffer) {
           try {
             const docBuffer = await docFile.arrayBuffer();
             if (docBuffer && docBuffer.byteLength > 0) {
               const docBase64 = arrayBufferToBase64(docBuffer);
-              const docMimeType = docFile.type || "image/jpeg";
-              contentsParts.push({ inline_data: { mime_type: docMimeType, data: docBase64 } });
+              contentsParts.push({ inline_data: { mime_type: docFile.type || "image/jpeg", data: docBase64 } });
             }
           } catch (e) {}
         }
 
         const promptText = `당신은 대한민국 식약처(MFDS) 표시사항 법령 단속 최고 권위관입니다.
-제출된 라벨 이미지와 증빙 서류를 식약처 '식품등의 표시기준' 및 '식품공전' 고시에 따라 분석하세요.
+제출된 라벨 이미지 원본과 증빙 서류를 식약처 '식품등의 표시기준' 및 '식품공전' 고시에 따라 정밀 분석하세요.
 
-[JSON 응답 규격 - 반드시 아래 형식을 지킬 것]
+[검수 및 매핑 지침]
+1. 라벨 속 한글을 정밀하게 판독하고 식약처 공식 식품유형(예: 즉석조리식품)으로 동적 분류하세요.
+2. 해당 식품유형에 법적으로 요구되는 필수 표기사항(제품명, 식품유형, 영업소 명칭 및 소재지, 소비기한, 내용량, 원재료명, 영양성분, 포장재질, 보관방법 등)을 전수 대조하세요.
+3. 누락되었거나 표시기준을 위반한 필수 항목은 'failed_items'에, 적합한 항목은 'passed_items'에 넣으세요.
+4. 법적 의무가 아닌 추가 정보(고객상담실, 반품처, 조리방법 등)는 'optional_items'에 분리하세요.
+
+[JSON 응답 규격]
 {
   "summary": "검수 결과 총평",
-  "analyzed_summary": {
-    "product_name": "제품명",
-    "food_type": "식품유형(공식명칭)",
-    "detected_items_count": 0
-  },
-  "passed_items": [
-    { "name": "항목명", "detail": "적합 사유" }
-  ],
-  "optional_items": [
-    { "name": "항목명", "detail": "내용" }
-  ],
-  "failed_items": [
-    { "item_name": "항목명", "found_text": "표기 없음", "issue_reason": "누락/위반 사유", "law": "법령명", "how_to_improve": "가이드" }
-  ],
-  "cross_check": [
-    { "item": "영업소 소재지", "status": "mismatch", "label_value": "라벨주소", "doc_value": "증빙주소", "note": "비고" }
-  ]
+  "analyzed_summary": { "product_name": "제품명", "food_type": "식품유형(공식명칭)", "detected_items_count": 0 },
+  "passed_items": [ { "name": "항목명", "detail": "적합 사유" } ],
+  "optional_items": [ { "name": "항목명", "detail": "내용" } ],
+  "failed_items": [ { "item_name": "항목명", "found_text": "표기 없음", "issue_reason": "누락 사유", "law": "식품등의 표시기준", "how_to_improve": "가이드" } ],
+  "cross_check": [ { "item": "영업소 소재지", "status": "mismatch", "label_value": "라벨주소", "doc_value": "증빙주소", "note": "비고" } ]
 }`;
-
         contentsParts.unshift({ text: promptText });
 
-        // 📌 다중 모델 자동 전환 (Fallback) 리스트 - 가능한 모든 버전을 순서대로 찔러봅니다.
-        const modelsToTry = [
-          "gemini-1.5-flash-latest",
-          "gemini-1.5-flash",
-          "gemini-1.5-pro-latest",
-          "gemini-1.5-pro",
-          "gemini-pro-vision"
-        ];
-
-        let geminiData = null;
-        let lastError = "";
+        const modelsToTry = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-1.5-pro-latest", "gemini-pro-vision"];
         let jsonString = "";
+        let lastError = "";
 
         for (const modelName of modelsToTry) {
-          const geminiEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
-          
-          let requestBody = { contents: [{ parts: contentsParts }] };
-          
-          // 구형 모델(pro-vision)은 response_mime_type을 지원하지 않으므로 예외 처리
+          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
+          const requestBody = { contents: [{ parts: contentsParts }] };
           if (modelName.includes("1.5")) {
             requestBody.generationConfig = { response_mime_type: "application/json", temperature: 0.1 };
           } else {
             requestBody.generationConfig = { temperature: 0.1 };
           }
 
-          const geminiRes = await fetch(geminiEndpoint, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody)
-          });
-
+          const geminiRes = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
           if (geminiRes.ok) {
-            geminiData = await geminiRes.json();
-            jsonString = geminiData.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (jsonString) break; // 성공하면 즉시 루프 탈출
+            const data = await geminiRes.json();
+            jsonString = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (jsonString) break;
           } else {
             lastError = await geminiRes.text();
           }
         }
 
-        if (!jsonString) {
-          throw new Error(`모든 제미나이 모델 연결 실패. 마지막 에러: ${lastError}`);
-        }
+        if (!jsonString) throw new Error(`제미나이 API 연동 실패: ${lastError}`);
 
         let parsedResult = null;
-        try {
-          parsedResult = JSON.parse(jsonString);
-        } catch (e) {
-          parsedResult = regexExtractLLMJSON(jsonString);
-        }
-
+        try { parsedResult = JSON.parse(jsonString); } catch (e) { parsedResult = regexExtractLLMJSON(jsonString); }
         if (!parsedResult) throw new Error("결과 해석 실패");
         parsedResult = enforceStrictValidation(parsedResult);
 
-        return new Response(
-          JSON.stringify({ success: true, result: parsedResult }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return new Response(JSON.stringify({ success: true, result: parsedResult }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
       } catch (err) {
-        return new Response(
-          JSON.stringify({ success: false, error: err.message || String(err) }),
-          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
+        return new Response(JSON.stringify({ success: false, error: err.message || String(err) }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
     }
   }
