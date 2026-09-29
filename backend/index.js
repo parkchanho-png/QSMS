@@ -1,24 +1,24 @@
 export default {
   async fetch(request, env) {
+    // CORS 헤더 설정
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type",
     };
 
+    // 사전 요청(OPTIONS) 통과
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: corsHeaders });
     }
 
-    const url = new URL(request.url);
-
-    // /api/analyze 경로 요청 처리
-    if (url.pathname === "/api/analyze" && request.method === "POST") {
+    // 주소 검사를 없애고, 무조건 POST 요청(이미지 전송)이면 AI 분석 실행
+    if (request.method === "POST") {
       try {
         if (!env.AI) {
           return new Response(
-            JSON.stringify({ success: false, error: "Workers AI 바인딩('AI')이 설정되지 않았습니다." }),
-            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            JSON.stringify({ success: false, error: "AI 바인딩이 설정되지 않았습니다." }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
 
@@ -28,10 +28,11 @@ export default {
         if (!imageFile) {
           return new Response(
             JSON.stringify({ success: false, error: "이미지 파일이 전달되지 않았습니다." }),
-            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
 
+        // 이미지 데이터 변환
         const arrayBuffer = await imageFile.arrayBuffer();
         const imageBytes = Array.from(new Uint8Array(arrayBuffer));
 
@@ -62,32 +63,29 @@ export default {
   ]
 }`;
 
-        let aiResponse;
-        try {
-          aiResponse = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", {
-            prompt: prompt,
-            image: imageBytes,
-          });
-        } catch (aiErr) {
-          return new Response(
-            JSON.stringify({ success: false, error: `AI 모델 실행 실패: ${aiErr.message}` }),
-            { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-          );
-        }
+        // AI 모델 실행
+        const aiResponse = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", {
+          prompt: prompt,
+          image: imageBytes,
+        });
 
+        // 결과 반환
         return new Response(
           JSON.stringify({ success: true, result: aiResponse.response || aiResponse }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
 
       } catch (err) {
         return new Response(
-          JSON.stringify({ success: false, error: `서버 내부 오류: ${err.message}` }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          JSON.stringify({ success: false, error: `서버 에러: ${err.message}` }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
     }
 
-    return new Response("Not Found", { status: 404, headers: corsHeaders });
+    // 테스트용 문구 (웹 브라우저로 접속 시 404 대신 이 문구가 뜹니다)
+    return new Response("AI 백엔드 서버가 정상 작동 중입니다. 사이트에서 이미지를 업로드해 주세요.", { 
+      headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" } 
+    });
   }
 };
