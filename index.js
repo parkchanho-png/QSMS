@@ -59,34 +59,20 @@ export default {
   ]
 }`;
 
-        let aiResponse;
-        
+        const modelName = "@cf/meta/llama-3.2-11b-vision-instruct";
+
+        // Step 1: 이미지 없이 단독으로 'agree'만 보내 Meta 라이선스 동의 등록
         try {
-          // 1차 시도: 정상적으로 법령 분석 요청
-          aiResponse = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", {
-            prompt: prompt,
-            image: imageBytes,
-          });
-        } catch (aiErr) {
-          // 에러 메시지에 'agree'나 '5016'이 포함되어 있다면 약관 동의 절차 수행
-          if (aiErr.message.includes("agree") || aiErr.message.includes("5016")) {
-            
-            // Meta 라이선스 약관 동의(agree) 자동 제출
-            await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", {
-              prompt: "agree",
-              image: imageBytes 
-            });
-            
-            // 동의 완료 후 2차 시도: 원래 프롬프트로 재요청
-            aiResponse = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", {
-              prompt: prompt,
-              image: imageBytes,
-            });
-          } else {
-            // 다른 종류의 에러면 그대로 오류 출력
-            throw aiErr; 
-          }
+          await env.AI.run(modelName, { prompt: "agree" });
+        } catch (agreeErr) {
+          // 이미 동의된 상태이거나 정상 처리인 경우 에러 무시하고 진행
         }
+
+        // Step 2: 약관 동의 완료 후 실제 이미지 및 법령 분석 프롬프트 실행
+        const aiResponse = await env.AI.run(modelName, {
+          prompt: prompt,
+          image: imageBytes,
+        });
 
         return new Response(
           JSON.stringify({ success: true, result: aiResponse.response || aiResponse }),
@@ -95,7 +81,7 @@ export default {
 
       } catch (err) {
         return new Response(
-          JSON.stringify({ success: false, error: err.message }),
+          JSON.stringify({ success: false, error: err.message || String(err) }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
