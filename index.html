@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LabelGuard AI - 맞춤형 심사관 & 끈질긴 OCR v2.8.0</title>
+  <title>LabelGuard AI - 외부 API 연동 준비 v2.9.0</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     :root {
@@ -58,8 +58,8 @@
 
 <div class="container">
   <div class="header">
-    <h1>🛡️ LabelGuard AI <span class="version-badge">v2.8.0</span></h1>
-    <p>식약처 맞춤형(Fine-Tuned) 심사관 & OCR 끈질긴 재시도 엔진</p>
+    <h1>🛡️ LabelGuard AI <span class="version-badge">v2.9.0</span></h1>
+    <p>원본 이미지 기반 고정밀 검수 시스템</p>
   </div>
 
   <div class="card">
@@ -79,7 +79,7 @@
         <input type="file" id="docInput" accept="image/*">
       </div>
     </div>
-    <button class="btn" onclick="analyzeData()">식품공전 기반 정밀 검수 시작</button>
+    <button class="btn" onclick="analyzeData()">원본 이미지 분석 시작</button>
   </div>
 
   <div class="loading" id="loading">
@@ -89,7 +89,7 @@
   <div class="result-split-view" id="resultSplitView">
     <div class="image-pane">
       <div class="card">
-        <h3 style="margin-top:0; font-size:1.05rem;">📷 라벨 이미지 & 인식 문자열</h3>
+        <h3 style="margin-top:0; font-size:1.05rem;">📷 라벨 원본 이미지</h3>
         <div class="overlay-controls">
           <button class="btn-toggle-overlay" onclick="toggleOverlay()">🔍 인식 문자열 네모상자 표시/숨기기</button>
         </div>
@@ -102,10 +102,10 @@
 
     <div class="report-pane">
       <div class="card">
-        <h2 style="margin-top:0; font-size:1.3rem;">📋 맞춤형 심사관 식약처 검수 리포트</h2>
+        <h2 style="margin-top:0; font-size:1.3rem;">📋 식약처 고시 검수 리포트</h2>
         <div class="summary-box" id="summaryText"></div>
 
-        <h3>🔍 1. 분석 개요 (식품공전 매핑)</h3>
+        <h3>🔍 1. 분석 개요</h3>
         <div class="overview-grid">
           <div class="overview-item">
             <span>추출 및 교정 제품명</span>
@@ -116,7 +116,7 @@
             <strong id="infoType" style="color:var(--primary);">-</strong>
           </div>
           <div class="overview-item">
-            <span>총 판독/추출 항목</span>
+            <span>총 추출 항목</span>
             <strong id="infoCount">-</strong>
           </div>
         </div>
@@ -176,28 +176,6 @@
     if (labelFile) { const reader = new FileReader(); reader.onload = function(e) { document.getElementById("previewImg").src = e.target.result; }; reader.readAsDataURL(labelFile); }
   }
 
-  // 📌 끈질긴 OCR을 위한 다중 필터 전처리 함수
-  function preprocessImage(file, filterType) {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas"); const ctx = canvas.getContext("2d");
-        canvas.width = img.width; canvas.height = img.height; ctx.drawImage(img, 0, 0);
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height); const data = imageData.data;
-        for (let i = 0; i < data.length; i += 4) {
-          const avg = (data[i] + data[i+1] + data[i+2]) / 3;
-          let v = avg;
-          if (filterType === 'normal') v = avg > 128 ? 255 : 0;
-          else if (filterType === 'high_contrast') v = avg > 100 ? 255 : 0;
-          else if (filterType === 'invert') v = avg > 128 ? 0 : 255;
-          data[i] = v; data[i+1] = v; data[i+2] = v;
-        }
-        ctx.putImageData(imageData, 0, 0); canvas.toBlob((blob) => resolve(blob || file));
-      };
-      img.src = URL.createObjectURL(file);
-    });
-  }
-
   function toggleOverlay() {
     const container = document.getElementById("boxesContainer"); isOverlayVisible = !isOverlayVisible; container.style.display = isOverlayVisible ? "block" : "none";
   }
@@ -213,26 +191,19 @@
 
     let labelText = "", docText = "";
     try {
-      // 📌 프론트엔드 다중 재시도(Retry) OCR 루프
-      const filters = ['normal', 'high_contrast', 'invert'];
-      for (let i = 0; i < filters.length; i++) {
-        loadingMsg.innerText = `🔍 1단계: 라벨 OCR 판독 시도 중 (재시도 ${i+1}/${filters.length})...`;
-        try {
-          const processedLabelBlob = await preprocessImage(labelFile, filters[i]);
-          const labelOcrResult = await Tesseract.recognize(processedLabelBlob, 'kor+eng');
-          if (labelOcrResult.data.text.length > labelText.length) {
-            labelText = labelOcrResult.data.text; ocrLines = labelOcrResult.data.lines || [];
-          }
-          if (labelText.replace(/\s/g, '').length > 50) break; // 충분히 인식되면 루프 탈출
-        } catch (e) {}
-      }
+      // 📌 전처리 없이 원본 파일 그대로 Tesseract에 전달
+      loadingMsg.innerText = "🔍 1단계: 원본 이미지 OCR 판독 중...";
+      try {
+        const labelOcrResult = await Tesseract.recognize(labelFile, 'kor+eng');
+        labelText = labelOcrResult.data.text; ocrLines = labelOcrResult.data.lines || [];
+      } catch (e) {}
 
       if (docFile) {
-        loadingMsg.innerText = "🔍 2단계: 증빙서류 OCR 판독 중...";
-        try { const processedDocBlob = await preprocessImage(docFile, 'normal'); const docOcrResult = await Tesseract.recognize(processedDocBlob, 'kor+eng'); docText = docOcrResult.data.text; } catch (e) {}
+        loadingMsg.innerText = "🔍 2단계: 증빙서류 원본 OCR 판독 중...";
+        try { const docOcrResult = await Tesseract.recognize(docFile, 'kor+eng'); docText = docOcrResult.data.text; } catch (e) {}
       }
 
-      loadingMsg.innerText = "🔍 3단계: 맞춤형 AI 심사관 가동 및 식약처 정밀 검수 중...";
+      loadingMsg.innerText = "🔍 3단계: 식약처 정밀 검수 중...";
       const formData = new FormData();
       formData.append("image", labelFile); if (docFile) formData.append("doc", docFile);
       formData.append("labelText", labelText); formData.append("docText", docText);
