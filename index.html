@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LabelGuard AI - 식약처 법령 검수 v1.5.0</title>
+  <title>LabelGuard AI - 식약처 법령 검수 v1.6.0</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     :root {
@@ -42,7 +42,7 @@
 
     .version-badge {
       font-size: 0.85rem;
-      background-color: #2563eb;
+      background-color: #16a34a;
       color: white;
       padding: 3px 10px;
       border-radius: 20px;
@@ -239,9 +239,9 @@
   <div class="header">
     <h1>
       🛡️ LabelGuard AI
-      <span class="version-badge">v1.5.0</span>
+      <span class="version-badge">v1.6.0</span>
     </h1>
-    <p>식약처 법령 검수 & 증빙서류 대조 스마트 관제 시스템</p>
+    <p>하이브리드 교차 OCR & 식약처 법령 대조 스마트 관제 시스템</p>
   </div>
 
   <div class="card">
@@ -262,7 +262,7 @@
         <input type="file" id="docInput" accept="image/*">
       </div>
     </div>
-    <button class="btn" onclick="analyzeData()">실시간 검수 및 분석 시작</button>
+    <button class="btn" onclick="analyzeData()">실시간 교차 검수 시작</button>
   </div>
 
   <div class="loading" id="loading">
@@ -382,6 +382,32 @@
     }
   }
 
+  // Canvas 대비(Contrast) 및 흑백 이미지 전처리 함수
+  function preprocessImage(file) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const ctx = canvas.getContext("2d");
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const data = imageData.data;
+        // 대비 강화 및 흑백화 알고리즘
+        for (let i = 0; i < data.length; i += 4) {
+          const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+          const v = avg > 128 ? 255 : 0; // 이진화 (Thresholding)
+          data[i] = v; data[i + 1] = v; data[i + 2] = v;
+        }
+        ctx.putImageData(imageData, 0, 0);
+        canvas.toBlob((blob) => resolve(blob || file));
+      };
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
   function toggleOverlay() {
     const container = document.getElementById("boxesContainer");
     isOverlayVisible = !isOverlayVisible;
@@ -408,24 +434,28 @@
     let docText = "";
 
     try {
-      loadingMsg.innerText = "🔍 1단계: Tesseract.js 라벨 OCR 판독 중...";
+      // 1. 이미지 선명화 전처리 후 Tesseract OCR 실행
+      loadingMsg.innerText = "🔍 1단계: 브라우저 이미지 선명화 전처리 및 Tesseract OCR 판독 중...";
       try {
-        const labelOcrResult = await Tesseract.recognize(labelFile, 'kor+eng');
+        const processedLabelBlob = await preprocessImage(labelFile);
+        const labelOcrResult = await Tesseract.recognize(processedLabelBlob, 'kor+eng');
         labelText = labelOcrResult.data.text;
         ocrLines = labelOcrResult.data.lines || [];
       } catch (e) {
-        console.warn("Tesseract OCR 실패, 백엔드 Vision AI로 대체합니다.");
+        console.warn("Tesseract OCR 실패, Vision AI로 대체합니다.");
       }
 
       if (docFile) {
         loadingMsg.innerText = "🔍 2단계: 증빙서류 OCR 판독 중...";
         try {
-          const docOcrResult = await Tesseract.recognize(docFile, 'kor+eng');
+          const processedDocBlob = await preprocessImage(docFile);
+          const docOcrResult = await Tesseract.recognize(processedDocBlob, 'kor+eng');
           docText = docOcrResult.data.text;
         } catch (e) {}
       }
 
-      loadingMsg.innerText = "🔍 3단계: Cloudflare Llama 3.1 70B AI 식약처 법령 검수 중...";
+      // 2. 백엔드로 앙상블 교차 대조 전송
+      loadingMsg.innerText = "🔍 3단계: 하이브리드 이중 OCR 교차 검증 및 70B AI 법령 검수 중...";
       const formData = new FormData();
       formData.append("image", labelFile);
       if (docFile) formData.append("doc", docFile);
