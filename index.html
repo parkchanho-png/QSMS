@@ -209,7 +209,7 @@
       </div>
       <div class="upload-box">
         <h3>2. 증빙 서류 (선택)</h3>
-        <p style="font-size: 0.8rem; color: #64748b; margin: 4px 0;">품목제조보고서, 원재료 명세서 등</p>
+        <p style="font-size: 0.8rem; color: #64748b; margin: 4px 0;">사업자등록증, 품목제조보고서, 성적서 등</p>
         <input type="file" id="docInput" accept="image/*">
       </div>
     </div>
@@ -217,7 +217,7 @@
   </div>
 
   <div class="loading" id="loading">
-    🔍 2단계 AI 파이프라인 가동 중: 텍스트 추출 및 72B 대형 AI 식약처 법령 검수 중... (약 10~15초)
+    🔍 라벨 및 증빙서류 개별 OCR 수행 후 72B AI 법령 교차 검수 중입니다... (약 10~15초 소요)
   </div>
 
   <div class="card result-section" id="resultCard">
@@ -319,7 +319,7 @@
 
     const summaryInfo = res.analyzed_summary || {};
     document.getElementById("infoProduct").innerText = summaryInfo.product_name || "라벨 확인됨";
-    document.getElementById("infoType").innerText = summaryInfo.food_type || "식품유형 확인됨";
+    document.getElementById("infoType").innerText = summaryInfo.food_type || "식품/기구용품";
     document.getElementById("infoCount").innerText = (summaryInfo.detected_items_count || 8) + "개 항목";
 
     const passTbody = document.querySelector("#passTable tbody");
