@@ -2,16 +2,9 @@ name = "label-compliance-checker-backend"
 main = "index.js"
 compatibility_date = "2024-03-01"
 
-# Cloudflare R2 버킷 연동 (라벨 이미지 저장용)
-[[r2_buckets]]
-binding = "LABEL_BUCKET"
-bucket_name = "label-images"
-
-# Cloudflare Workers AI 연동 (Vision 모델 사용)
+# Cloudflare Workers AI 연동 (무료 이용 가능)
 [ai]
 binding = "AI"
 
-# 환경 변수 (국가법령정보센터 API 키 등)
 [vars]
 LAW_API_BASE_URL = "http://www.law.go.kr/DRF/lawSearch.do"
-# LAW_API_KEY = "발급받은_국가법령정보센터_API_KEY"
