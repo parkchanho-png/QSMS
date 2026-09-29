@@ -37,8 +37,8 @@ export default {
         }
 
         const formData = await request.formData();
-        const labelFile = formData.get("image"); // 라벨/광고 이미지
-        const docFile = formData.get("doc");     // 관련 증빙 서류 (선택/필수)
+        const labelFile = formData.get("image");
+        const docFile = formData.get("doc");
 
         if (!labelFile) {
           return new Response(
@@ -59,25 +59,18 @@ export default {
           imagesPayload.push(docBytes);
 
           docCheckPrompt = `
-[증빙 자료 교차 대조(Cross-Check) 지침]
-제공된 이미지 중 첫 번째는 '한글표시사항 라벨/광고'이고, 두 번째는 '품목제조보고서/시험성적서/원재료 스펙시트' 등 증빙 문서입니다.
-다음 항목들이 증빙 문서와 라벨 상에서 서로 일치하는지 엄격히 대조하세요:
-1. 제품명 및 식품유형 일치 여부
-2. 원재료명 및 함량(%) 표기 일치 여부
-3. 제조원/업소명 및 소재지 일치 여부
-4. 유통기한/소비기한 설정 사유 및 표기 일치 여부
+[증빙 자료 교차 대조 지침]
+제공된 이미지 중 첫 번째는 '라벨/광고'이고, 두 번째는 '품목제조보고서/증빙서류'입니다.
+두 문서의 제품명, 원재료명/함량, 제조원/소비기한 정보가 일치하는지 대조하세요.
 `;
         }
 
-        const prompt = `당신은 대한민국 식약처(MFDS) 전문 표시·광고 및 품목제조보고서 교차 검수관입니다.
-제공된 라벨/광고 이미지를 식약처 관련 법령과 대조 분석하고, 증빙 문서가 함께 제출된 경우 교차 검수를 수행하세요.
+        const prompt = `당신은 대한민국 식약처(MFDS) 한글표시사항 및 품목제조보고서 검수관입니다.
+라벨 이미지와 제출된 증빙서류를 대조 검수하세요.
 
 ${docCheckPrompt}
 
-[식약처 필수 검토 9대 항목]
-제품명, 식품유형, 업소명 및 소재지, 소비기한/유통기한, 내용량 및 열량, 원재료명, 영양성분, 용기·포장재질, 품목보고번호
-
-[응답 형식 - 반드시 아래 JSON 구조로만 정확히 답변하세요]
+[중요: 마크다운 헤더(###)나 기타 인사말을 절대 포함하지 말고, 오직 아래 JSON 형식으로만 답변하세요.]
 {
   "is_compliant": false,
   "summary": "법령 및 증빙서류 교차 검수 종합 결과 한 줄 요약",
@@ -118,8 +111,19 @@ ${docCheckPrompt}
           image: imagesPayload.length === 1 ? imagesPayload[0] : imagesPayload,
         });
 
+        let rawText = aiResponse.response || aiResponse;
+
+        // 텍스트에서 JSON 부분만 안전하게 정제 추출하는 로직
+        if (typeof rawText === "string") {
+          rawText = rawText.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+          const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            rawText = jsonMatch[0];
+          }
+        }
+
         return new Response(
-          JSON.stringify({ success: true, result: aiResponse.response || aiResponse }),
+          JSON.stringify({ success: true, result: rawText }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
 
