@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LabelGuard AI - 식약처 법령 검수 v1.6.0</title>
+  <title>LabelGuard AI - 식약처 법령 검수 v1.7.0</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     :root {
@@ -239,9 +239,9 @@
   <div class="header">
     <h1>
       🛡️ LabelGuard AI
-      <span class="version-badge">v1.6.0</span>
+      <span class="version-badge">v1.7.0</span>
     </h1>
-    <p>하이브리드 교차 OCR & 식약처 법령 대조 스마트 관제 시스템</p>
+    <p>하이브리드 교차 OCR & 정밀 주소 검증 관제 시스템</p>
   </div>
 
   <div class="card">
@@ -304,10 +304,10 @@
           </div>
         </div>
 
-        <h3>✅ 2. 적합 항목 (문제 없음)</h3>
+        <h3>✅ 2. 적합 항목 (법적 타당성 설명)</h3>
         <table id="passTable">
           <thead>
-            <tr><th>검토 항목</th><th>상태</th><th>세부 내용</th></tr>
+            <tr><th>검토 항목</th><th>상태</th><th>식약처 법령 및 적합 근거 사유</th></tr>
           </thead>
           <tbody></tbody>
         </table>
@@ -318,7 +318,7 @@
         <h3 style="margin-top: 20px;">📑 4. 증빙서류 교차 대조 (Cross-Check)</h3>
         <table id="crossTable">
           <thead>
-            <tr><th>대조 항목</th><th>상태</th><th>라벨 표기</th><th>증빙서류</th><th>비고</th></tr>
+            <tr><th>대조 항목</th><th>상태</th><th>라벨 표기</th><th>증빙서류</th><th>비고/지침</th></tr>
           </thead>
           <tbody></tbody>
         </table>
@@ -382,7 +382,6 @@
     }
   }
 
-  // Canvas 대비(Contrast) 및 흑백 이미지 전처리 함수
   function preprocessImage(file) {
     return new Promise((resolve) => {
       const img = new Image();
@@ -395,10 +394,9 @@
 
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const data = imageData.data;
-        // 대비 강화 및 흑백화 알고리즘
         for (let i = 0; i < data.length; i += 4) {
           const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
-          const v = avg > 128 ? 255 : 0; // 이진화 (Thresholding)
+          const v = avg > 128 ? 255 : 0;
           data[i] = v; data[i + 1] = v; data[i + 2] = v;
         }
         ctx.putImageData(imageData, 0, 0);
@@ -434,7 +432,6 @@
     let docText = "";
 
     try {
-      // 1. 이미지 선명화 전처리 후 Tesseract OCR 실행
       loadingMsg.innerText = "🔍 1단계: 브라우저 이미지 선명화 전처리 및 Tesseract OCR 판독 중...";
       try {
         const processedLabelBlob = await preprocessImage(labelFile);
@@ -454,7 +451,6 @@
         } catch (e) {}
       }
 
-      // 2. 백엔드로 앙상블 교차 대조 전송
       loadingMsg.innerText = "🔍 3단계: 하이브리드 이중 OCR 교차 검증 및 70B AI 법령 검수 중...";
       const formData = new FormData();
       formData.append("image", labelFile);
@@ -528,7 +524,7 @@
         tr.innerHTML = `
           <td><strong>${item.name || '-'}</strong></td>
           <td><span class="badge badge-pass">적합</span></td>
-          <td>${item.detail || '올바르게 표기되었습니다.'}</td>
+          <td>${item.detail || '식약처 법령 및 표시기준에 맞게 올바르게 표기되었습니다.'}</td>
         `;
         passTbody.appendChild(tr);
       });
