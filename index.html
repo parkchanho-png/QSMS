@@ -14,7 +14,6 @@
       --border: #e2e8f0;
       --danger: #ef4444;
       --success: #22c55e;
-      --warning: #f59e0b;
     }
 
     body {
@@ -127,6 +126,7 @@
       padding: 10px;
       text-align: left;
       font-size: 0.95rem;
+      word-break: break-word;
     }
 
     th { background: #f1f5f9; }
@@ -161,7 +161,7 @@
 
   <div class="card result-section" id="resultCard">
     <h2>📋 검수 결과 리포트</h2>
-    <p id="summaryText" style="font-weight: bold; font-size: 1.1rem;"></p>
+    <p id="summaryText" style="font-weight: bold; font-size: 1.1rem; color: #1e293b;"></p>
 
     <h3>1. 증빙서류 교차 대조 결과 (Cross-Check)</h3>
     <table id="crossTable">
@@ -230,20 +230,9 @@
     }
   }
 
-  function renderResult(resultData) {
-    let res;
-    try {
-      if (typeof resultData === "string") {
-        let cleanStr = resultData.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
-        const jsonMatch = cleanStr.match(/\{[\s\S]*\}/);
-        if (jsonMatch) cleanStr = jsonMatch[0];
-        res = JSON.parse(cleanStr);
-      } else {
-        res = resultData;
-      }
-    } catch (e) {
-      alert("AI 분석 결과 변환 중 오류가 발생했습니다. 다시 시도해 주세요.");
-      return;
+  function renderResult(res) {
+    if (typeof res === "string") {
+      try { res = JSON.parse(res); } catch (e) {}
     }
 
     document.getElementById("resultCard").style.display = "block";
