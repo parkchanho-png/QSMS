@@ -14,10 +14,9 @@ export default {
 
     if (url.pathname === "/api/analyze" && request.method === "POST") {
       try {
-        // 1. Workers AI 바인딩 체크
         if (!env.AI) {
           return new Response(
-            JSON.stringify({ success: false, error: "Cloudflare Worker에 'AI' 바인딩 설정이 누락되었습니다." }),
+            JSON.stringify({ success: false, error: "Workers AI 바인딩('AI')이 설정되지 않았습니다." }),
             { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
@@ -27,24 +26,23 @@ export default {
 
         if (!imageFile) {
           return new Response(
-            JSON.stringify({ success: false, error: "이미지 파일이 누락되었습니다." }),
+            JSON.stringify({ success: false, error: "이미지 파일이 전달되지 않았습니다." }),
             { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
           );
         }
 
-        // 이미지 바이너리 데이터 안전 변환
         const imageArrayBuffer = await imageFile.arrayBuffer();
-        const imageBytes = Array.from(new Uint8Array(imageArrayBuffer));
+        const imageBytes = [...new Uint8Array(imageArrayBuffer)];
 
         const prompt = `
         당신은 대한민국 식약처 및 표시·광고 관련 법령 전문가입니다.
         제공된 이미지에서 한글표시사항 텍스트 및 정보를 분석하세요.
 
-        [분석 지침]
-        1. 필수 한글표시사항 검토 (제품명, 내용량, 원재료명/전성분, 영업자의 상호 및 소재지, 유통기한/사용기한, 용기·포장 재질 등)
-        2. 관련 법령 위반 표현 또는 부당한 표시·광고 표현 검출
+        [검토 기준]
+        - 필수 표기사항: 제품명, 내용량, 원재료명/전성분, 영업자의 상호 및 주소, 유통기한/사용기한
+        - 표시·광고 위반: 의약품 오인 문구, 단정적/과대 표현
 
-        [응답 형식 - 반드시 아래 JSON 구조로만 답변하세요]
+        [응답 형식 - 반드시 아래 JSON으로만 응답]
         {
           "is_compliant": false,
           "required_fields": [
@@ -52,12 +50,12 @@ export default {
             {"name": "내용량", "status": "pass"},
             {"name": "전성분/원재료명", "status": "pass"},
             {"name": "영업자의 상호 및 주소", "status": "pass"},
-            {"name": "유통기한/사용기한", "status": "fail"}
+            {"name": "유통기한/사용기한", "status": "pass"}
           ],
           "violations": [
             {
               "word": "검출 문구",
-              "issue": "위반 또는 주의 사유",
+              "issue": "위반 사유",
               "law": "관련 법령 조항",
               "guide": "수정 가이드라인"
             }
@@ -65,22 +63,27 @@ export default {
         }
         `;
 
-        // Vision AI 모델 실행
-        const aiResponse = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", {
-          prompt: prompt,
-          image: imageBytes,
-        });
+        let aiResponse;
+        try {
+          aiResponse = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", {
+            prompt: prompt,
+            image: imageBytes,
+          });
+        } catch (aiError) {
+          return new Response(
+            JSON.stringify({ success: false, error: `AI 분석 타임아웃 또는 연동 오류: ${aiError.message}` }),
+            { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
 
-        return new Response(JSON.stringify({
-          success: true,
-          result: aiResponse.response || aiResponse
-        }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        });
+        return new Response(
+          JSON.stringify({ success: true, result: aiResponse.response || aiResponse }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
 
       } catch (err) {
         return new Response(
-          JSON.stringify({ success: false, error: err.message }),
+          JSON.stringify({ success: false, error: `서버 내부 오류: ${err.message}` }),
           { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
