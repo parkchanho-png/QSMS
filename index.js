@@ -34,7 +34,7 @@ function enforceStrictValidation(data) {
   return data;
 }
 
-// 📌 정규식 파서
+// 📌 정규식 역파서 (혹시 모를 JSON 에러 대비)
 function regexExtractLLMJSON(raw) {
   if (!raw || typeof raw !== "string") return null;
 
@@ -99,12 +99,6 @@ export default {
 
     if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-    if (request.method === "GET") {
-      return new Response("🎉 LabelGuard AI v3.3.0 구글 API 표준 연동 완료!", {
-        headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
-      });
-    }
-
     if (request.method === "POST") {
       try {
         const geminiApiKey = env.GEMINI_API_KEY;
@@ -160,7 +154,7 @@ export default {
 }`;
         contentsParts.unshift({ text: promptText });
 
-        // 📌 단종 모델 삭제 및 최신 1.5 모델만 사용
+        // 📌 단종 모델 완전 삭제 및 최신 1.5 모델만 배열에 남김
         const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro"];
         let jsonString = "";
         let lastError = "";
@@ -168,7 +162,6 @@ export default {
         for (const modelName of modelsToTry) {
           const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
           
-          // JSON 포맷 강제 (responseMimeType)
           const requestBody = {
             contents: [{ parts: contentsParts }],
             generationConfig: { responseMimeType: "application/json", temperature: 0.1 }
@@ -190,7 +183,7 @@ export default {
         }
 
         if (!jsonString) {
-          throw new Error(`제미나이 API 판독 실패: ${lastError}`);
+          throw new Error(`제미나이 API 연동 실패: ${lastError}`);
         }
 
         let parsedResult = null;
