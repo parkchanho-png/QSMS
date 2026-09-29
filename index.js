@@ -59,10 +59,34 @@ export default {
   ]
 }`;
 
-        const aiResponse = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", {
-          prompt: prompt,
-          image: imageBytes,
-        });
+        let aiResponse;
+        
+        try {
+          // 1차 시도: 정상적으로 법령 분석 요청
+          aiResponse = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", {
+            prompt: prompt,
+            image: imageBytes,
+          });
+        } catch (aiErr) {
+          // 에러 메시지에 'agree'나 '5016'이 포함되어 있다면 약관 동의 절차 수행
+          if (aiErr.message.includes("agree") || aiErr.message.includes("5016")) {
+            
+            // Meta 라이선스 약관 동의(agree) 자동 제출
+            await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", {
+              prompt: "agree",
+              image: imageBytes 
+            });
+            
+            // 동의 완료 후 2차 시도: 원래 프롬프트로 재요청
+            aiResponse = await env.AI.run("@cf/meta/llama-3.2-11b-vision-instruct", {
+              prompt: prompt,
+              image: imageBytes,
+            });
+          } else {
+            // 다른 종류의 에러면 그대로 오류 출력
+            throw aiErr; 
+          }
+        }
 
         return new Response(
           JSON.stringify({ success: true, result: aiResponse.response || aiResponse }),
