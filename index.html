@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LabelGuard AI - 식약처 법령 검수 v1.4.0</title>
+  <title>LabelGuard AI - 식약처 법령 검수 v1.5.0</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     :root {
@@ -58,7 +58,6 @@
       margin-bottom: 24px;
     }
 
-    /* 대형 드롭존 디자인 */
     .upload-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -240,14 +239,13 @@
   <div class="header">
     <h1>
       🛡️ LabelGuard AI
-      <span class="version-badge">v1.4.0</span>
+      <span class="version-badge">v1.5.0</span>
     </h1>
     <p>식약처 법령 검수 & 증빙서류 대조 스마트 관제 시스템</p>
   </div>
 
   <div class="card">
     <div class="upload-grid">
-      <!-- 1번 드롭존 -->
       <div class="upload-box" id="dropZoneLabel" onclick="document.getElementById('labelInput').click()">
         <div class="upload-icon">🏷️</div>
         <div class="upload-title">1. 라벨 / 광고 이미지 (필수)</div>
@@ -256,7 +254,6 @@
         <input type="file" id="labelInput" accept="image/*">
       </div>
 
-      <!-- 2번 드롭존 -->
       <div class="upload-box" id="dropZoneDoc" onclick="document.getElementById('docInput').click()">
         <div class="upload-icon">📑</div>
         <div class="upload-title">2. 증빙 서류 (선택)</div>
@@ -272,7 +269,6 @@
     <span id="loadingMsg">🔍 분석을 시작합니다...</span>
   </div>
 
-  <!-- 2분할 관제 화면 -->
   <div class="result-split-view" id="resultSplitView">
     <div class="image-pane">
       <div class="card">
@@ -335,7 +331,6 @@
   let ocrLines = [];
   let isOverlayVisible = true;
 
-  // 대형 드롭존 Drag & Drop 이벤트 설정
   function setupDropZone(zoneId, inputId, labelId) {
     const zone = document.getElementById(zoneId);
     const input = document.getElementById(inputId);
@@ -413,7 +408,6 @@
     let docText = "";
 
     try {
-      // 1. 라벨 OCR
       loadingMsg.innerText = "🔍 1단계: Tesseract.js 라벨 OCR 판독 중...";
       try {
         const labelOcrResult = await Tesseract.recognize(labelFile, 'kor+eng');
@@ -423,7 +417,6 @@
         console.warn("Tesseract OCR 실패, 백엔드 Vision AI로 대체합니다.");
       }
 
-      // 2. 증빙서류 OCR
       if (docFile) {
         loadingMsg.innerText = "🔍 2단계: 증빙서류 OCR 판독 중...";
         try {
@@ -432,8 +425,7 @@
         } catch (e) {}
       }
 
-      // 3. 백엔드로 바이너리 파일과 OCR 텍스트 동시 전송
-      loadingMsg.innerText = "🔍 3단계: Cloudflare 72B 대형 AI 식약처 법령 검수 중...";
+      loadingMsg.innerText = "🔍 3단계: Cloudflare Llama 3.1 70B AI 식약처 법령 검수 중...";
       const formData = new FormData();
       formData.append("image", labelFile);
       if (docFile) formData.append("doc", docFile);
