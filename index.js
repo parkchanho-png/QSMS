@@ -75,15 +75,15 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
     const geminiApiKey = (env.GEMINI_API_KEY || "").trim();
 
-    // 🔍 진단 모드 (GET) - 서버 업데이트 확인용
+    // 🔍 진단 모드 (GET)
     if (request.method === "GET") {
       if (!geminiApiKey) return new Response(JSON.stringify({ status: "ERROR", message: "API 키 없음" }), { headers: corsHeaders });
-      return new Response(JSON.stringify({ system: "LabelGuard AI v3.6.0 (Gemini 3.6 Flash 전용)", note: "Cloudflare 코드 덮어쓰기 성공!" }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
+      return new Response(JSON.stringify({ system: "LabelGuard AI v3.7.0 (1.5 삭제, 3.6 단독 직진!)", note: "Cloudflare 코드 덮어쓰기 성공!" }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
     }
 
     if (request.method === "POST") {
       try {
-        if (!geminiApiKey) throw new Error("[v3.6.0 오류] 서버 환경 변수(GEMINI_API_KEY)가 없습니다.");
+        if (!geminiApiKey) throw new Error("[v3.7.0 오류] 서버 환경 변수(GEMINI_API_KEY)가 없습니다.");
 
         const formData = await request.formData();
         const labelFile = formData.get("image");
@@ -108,8 +108,8 @@ export default {
 }`;
         contentsParts.unshift({ text: promptText });
 
-        // 📌 확실하게 존재하는 Gemini 3.6 Flash 1순위 타겟팅
-        let candidateModels = ["gemini-3.6-flash", "gemini-1.5-flash"];
+        // 📌 1.5는 모두 삭제하고 오직 3.6 버전 하나만 찌릅니다. (문제가 생기면 3.6의 에러 원인이 직접 표출됨)
+        let candidateModels = ["gemini-3.6-flash"];
         let rawResponseText = "";
         let lastErrorLog = "";
 
@@ -126,11 +126,11 @@ export default {
           }
         }
 
-        // 🚨 만약 새 코드로도 에러가 난다면 여기서 명확한 v3.6.0 에러 메시지를 뿜습니다.
-        if (!rawResponseText) throw new Error(`[v3.6.0 서버 오류] 구글 API 응답 실패. 로그: ${lastErrorLog.substring(0, 100)}`);
+        // 🚨 3.6 모델이 에러를 뱉을 경우, 가감 없이 3.6의 에러 원인을 그대로 보여줍니다.
+        if (!rawResponseText) throw new Error(`[v3.7.0 서버 오류] 구글 3.6 API가 거절했습니다. 로그: ${lastErrorLog.substring(0, 150)}`);
 
         let parsedResult = parseAIJSON(rawResponseText) || regexExtractLLMJSON(rawResponseText);
-        if (!parsedResult) throw new Error("[v3.6.0 서버 오류] AI 응답 데이터 파싱 실패");
+        if (!parsedResult) throw new Error("[v3.7.0 서버 오류] AI 응답 데이터 파싱 실패");
         parsedResult = enforceStrictValidation(parsedResult);
 
         return new Response(JSON.stringify({ success: true, result: parsedResult }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
