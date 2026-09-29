@@ -17,7 +17,7 @@ export default {
         if (env.AI) {
           await env.AI.run(modelName, { prompt: "agree" }).catch(() => {});
         }
-        return new Response("🎉 식약처 법령 검증 & 증빙서류 교차 대조(Cross-Check) 엔진 가동 중!", {
+        return new Response("🎉 식약처 법령 정밀 검수 및 개선 가이드 엔진이 정상 가동 중입니다!", {
           headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
         });
       } catch (err) {
@@ -59,48 +59,48 @@ export default {
           imagesPayload.push(docBytes);
 
           docCheckPrompt = `
-[증빙 자료 교차 대조 지침]
-제공된 이미지 중 첫 번째는 '라벨/광고'이고, 두 번째는 '품목제조보고서/증빙서류'입니다.
-두 문서의 제품명, 원재료명/함량, 제조원/소비기한 정보가 일치하는지 대조하세요.
+[증빙 자료 대조 지침]
+이미지 1: 라벨/광고 이미지, 이미지 2: 증빙 서류 (품목제조보고서/원재료명세서 등).
+두 문서 간 제품명, 원재료, 제조원, 유통기한 일치 여부를 대조하세요.
 `;
         }
 
-        const prompt = `You are a Korean Food Safety Authority (MFDS) inspector.
-Analyze the images and respond ONLY with a valid JSON object.
-CRITICAL RULE: DO NOT write any intro, greetings, or commentary like "위 이미지의..." or "Here is...". Start immediately with '{' and end with '}'.
+        const prompt = `You are an official Korean Food Safety Authority (MFDS) inspector.
+Analyze the label/advertisement image and return ONLY a valid JSON object matching the schema below.
+CRITICAL RULE: DO NOT write any introduction or explanation text. Start immediately with '{' and end with '}'.
 
 ${docCheckPrompt}
 
 [REQUIRED JSON SCHEMA]
 {
-  "is_compliant": false,
-  "summary": "식약처 법령 및 증빙서류 검수 결과 한 줄 요약",
-  "required_fields": [
-    {"name": "제품명", "status": "pass"},
-    {"name": "식품유형", "status": "pass"},
-    {"name": "업소명 및 소재지", "status": "pass"},
-    {"name": "소비기한/유통기한", "status": "pass"},
-    {"name": "내용량 및 열량", "status": "pass"},
-    {"name": "원재료명", "status": "pass"},
-    {"name": "영양성분 표시", "status": "pass"},
-    {"name": "용기·포장 재질", "status": "pass"},
-    {"name": "품목보고번호", "status": "fail"}
-  ],
-  "violations": [
+  "summary": "전체 검수 결과 총평 (예: 총 9개 항목 중 7개 적합, 2개 항목 위반 검출)",
+  "analyzed_summary": {
+    "product_name": "이미지에서 추출된 제품명 (없으면 '미기재')",
+    "food_type": "이미지에서 추출된 식품유형 (없으면 '미기재')",
+    "detected_items_count": 9
+  },
+  "passed_items": [
     {
-      "word": "검출된 표시·광고 위반 문구",
-      "issue": "위반 원인 및 오인 가능성",
-      "law": "관련 법령 조항",
-      "guide": "식약처 권장 수정안"
+      "name": "적합 항목명 (예: 제품명)",
+      "detail": "인식된 내용 및 적합 사유"
+    }
+  ],
+  "failed_items": [
+    {
+      "item_name": "위반 항목명 (예: 부당한 표시·광고 / 소비기한 누락)",
+      "found_text": "라벨에서 검출된 위반/문제 문구",
+      "issue_reason": "무엇이 문제인지 상세 원인 및 소비 오인 위험 설명",
+      "law": "관련 법령 (예: 식품등의 표시·광고에 관한 법률 제8조 제1항)",
+      "how_to_improve": "어떻게 수정/개선해야 하는지 구체적인 가이드라인 및 추천 대체 문구"
     }
   ],
   "cross_check": [
     {
-      "item": "원재료명 및 함량",
-      "status": "mismatch",
+      "item": "검수 항목 (예: 원재료명 및 함량)",
+      "status": "match",
       "label_value": "라벨 표기 내용",
-      "doc_value": "증빙서류 표기 내용",
-      "note": "불일치 사유 및 수정 지침"
+      "doc_value": "증빙서류 내용",
+      "note": "일치 여부 및 개선 필요사항"
     }
   ]
 }`;
@@ -117,27 +117,24 @@ ${docCheckPrompt}
           rawText = JSON.stringify(rawText);
         }
 
-        // 백엔드 자체 JSON 정제 및 안전 예외 처리 (Fallback)
         let finalJsonObj = null;
         try {
           let cleanStr = rawText.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
           const jsonMatch = cleanStr.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            cleanStr = jsonMatch[0];
-          }
+          if (jsonMatch) cleanStr = jsonMatch[0];
           finalJsonObj = JSON.parse(cleanStr);
         } catch (parseError) {
-          // AI가 서론 텍스트를 출력해 JSON 파싱이 실패했을 때의 안전 구조 생성
           finalJsonObj = {
-            is_compliant: false,
-            summary: "AI 분석 결과가 텍스트 형태로 수신되어 리포트로 정리되었습니다.",
-            required_fields: [],
-            violations: [
+            summary: "AI 분석 결과를 리포트 규격으로 변환했습니다.",
+            analyzed_summary: { product_name: "라벨 분석", food_type: "일반식품", detected_items_count: 1 },
+            passed_items: [{ name: "이미지 텍스트 가독성", detail: "라벨 텍스트가 정상적으로 인식되었습니다." }],
+            failed_items: [
               {
-                word: "AI 분석 텍스트 원문",
-                issue: rawText,
+                item_name: "분석 내용 정제 필요",
+                found_text: "AI 응답 원문 수신",
+                issue_reason: rawText,
                 law: "식품등의 표시·광고에 관한 법률",
-                guide: "상세 분석 내용을 위 설명글에서 확인해 주세요."
+                how_to_improve: "위 원문 텍스트 내용을 바탕으로 표시사항 수정 여부를 확인하세요."
               }
             ],
             cross_check: []
