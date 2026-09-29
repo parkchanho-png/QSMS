@@ -3,8 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LabelGuard AI - 식약처 법령 검수 v1.3.0</title>
-  <!-- Tesseract.js 무료 OCR 라이브러리 내장 -->
+  <title>LabelGuard AI - 식약처 법령 검수 v1.4.0</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     :root {
@@ -43,7 +42,7 @@
 
     .version-badge {
       font-size: 0.85rem;
-      background-color: #16a34a;
+      background-color: #2563eb;
       color: white;
       padding: 3px 10px;
       border-radius: 20px;
@@ -59,6 +58,7 @@
       margin-bottom: 24px;
     }
 
+    /* 대형 드롭존 디자인 */
     .upload-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -70,14 +70,30 @@
 
     .upload-box {
       border: 2px dashed #94a3b8;
-      border-radius: 8px;
-      padding: 16px;
+      border-radius: 12px;
+      padding: 24px;
       text-align: center;
-      background: #f1f5f9;
+      background: #f8fafc;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      min-height: 150px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
     }
 
-    .upload-box h3 { font-size: 1rem; margin: 0 0 8px 0; color: #334155; }
-    input[type="file"] { width: 100%; }
+    .upload-box:hover, .upload-box.dragover {
+      border-color: var(--primary);
+      background: #eff6ff;
+    }
+
+    .upload-icon { font-size: 2.2rem; margin-bottom: 8px; }
+    .upload-title { font-size: 1.05rem; font-weight: bold; color: #334155; margin-bottom: 4px; }
+    .upload-sub { font-size: 0.85rem; color: #64748b; margin-bottom: 8px; }
+    .file-name-tag { font-size: 0.85rem; font-weight: bold; color: var(--primary); word-break: break-all; }
+
+    input[type="file"] { display: none; }
 
     .btn {
       width: 100%;
@@ -115,11 +131,7 @@
 
     .image-pane { position: sticky; top: 20px; }
 
-    .overlay-controls {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 12px;
-    }
+    .overlay-controls { display: flex; gap: 8px; margin-bottom: 12px; }
 
     .btn-toggle-overlay {
       flex: 1;
@@ -132,7 +144,6 @@
       cursor: pointer;
       font-size: 0.9rem;
     }
-    .btn-toggle-overlay:hover { background: #334155; }
 
     .img-wrapper {
       position: relative;
@@ -147,20 +158,14 @@
       min-height: 350px;
     }
 
-    .img-wrapper img {
-      width: 100%;
-      height: auto;
-      display: block;
-    }
+    .img-wrapper img { width: 100%; height: auto; display: block; }
 
-    /* OCR 실시간 위치 박스 오버레이 */
     .ocr-box-overlay {
       position: absolute;
       border: 2px solid #3b82f6;
       background: rgba(59, 130, 246, 0.25);
       border-radius: 3px;
       pointer-events: none;
-      transition: all 0.2s ease;
     }
 
     .summary-box {
@@ -235,48 +240,53 @@
   <div class="header">
     <h1>
       🛡️ LabelGuard AI
-      <span class="version-badge">v1.3.0</span>
+      <span class="version-badge">v1.4.0</span>
     </h1>
-    <p>Tesseract 브라우저 OCR & Cloudflare 72B 식약처 법령 검수</p>
+    <p>식약처 법령 검수 & 증빙서류 대조 스마트 관제 시스템</p>
   </div>
 
   <div class="card">
     <div class="upload-grid">
-      <div class="upload-box">
-        <h3>1. 라벨 / 광고 이미지 (필수)</h3>
-        <input type="file" id="labelInput" accept="image/*" onchange="previewImages()">
+      <!-- 1번 드롭존 -->
+      <div class="upload-box" id="dropZoneLabel" onclick="document.getElementById('labelInput').click()">
+        <div class="upload-icon">🏷️</div>
+        <div class="upload-title">1. 라벨 / 광고 이미지 (필수)</div>
+        <div class="upload-sub">클릭하거나 이미지를 끌어다 놓으세요</div>
+        <div class="file-name-tag" id="labelFileName">선택된 파일 없음</div>
+        <input type="file" id="labelInput" accept="image/*">
       </div>
-      <div class="upload-box">
-        <h3>2. 증빙 서류 (선택)</h3>
-        <p style="font-size: 0.75rem; color: #64748b; margin: 2px 0;">사업자등록증, 품목제조보고서 등</p>
-        <input type="file" id="docInput" accept="image/*" onchange="previewImages()">
+
+      <!-- 2번 드롭존 -->
+      <div class="upload-box" id="dropZoneDoc" onclick="document.getElementById('docInput').click()">
+        <div class="upload-icon">📑</div>
+        <div class="upload-title">2. 증빙 서류 (선택)</div>
+        <div class="upload-sub">사업자등록증, 품목제조보고서 등</div>
+        <div class="file-name-tag" id="docFileName">선택된 파일 없음</div>
+        <input type="file" id="docInput" accept="image/*">
       </div>
     </div>
     <button class="btn" onclick="analyzeData()">실시간 검수 및 분석 시작</button>
   </div>
 
   <div class="loading" id="loading">
-    <span id="loadingMsg">🔍 1단계: 브라우저 Tesseract.js 한국어 OCR 판독 중...</span>
+    <span id="loadingMsg">🔍 분석을 시작합니다...</span>
   </div>
 
   <!-- 2분할 관제 화면 -->
   <div class="result-split-view" id="resultSplitView">
-    
-    <!-- 좌측: 이미지 및 실시간 좌표 네모상자 -->
     <div class="image-pane">
       <div class="card">
         <h3 style="margin-top:0; font-size:1.05rem;">📷 라벨 이미지 & 인식 문자열 네모상자</h3>
         <div class="overlay-controls">
           <button class="btn-toggle-overlay" onclick="toggleOverlay()">🔍 인식 문자열 네모상자 표시/숨기기</button>
         </div>
-        <div class="img-wrapper" id="imgWrapper">
+        <div class="img-wrapper">
           <img id="previewImg" src="" alt="라벨 이미지 미리보기">
           <div id="boxesContainer"></div>
         </div>
       </div>
     </div>
 
-    <!-- 우측: 상세 리포트 -->
     <div class="report-pane">
       <div class="card">
         <h2 style="margin-top:0; font-size:1.3rem;">📋 식약처 법령 검수 리포트</h2>
@@ -318,13 +328,53 @@
         </table>
       </div>
     </div>
-
   </div>
 </div>
 
 <script>
   let ocrLines = [];
   let isOverlayVisible = true;
+
+  // 대형 드롭존 Drag & Drop 이벤트 설정
+  function setupDropZone(zoneId, inputId, labelId) {
+    const zone = document.getElementById(zoneId);
+    const input = document.getElementById(inputId);
+
+    zone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      zone.classList.add("dragover");
+    });
+
+    zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
+
+    zone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      zone.classList.remove("dragover");
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        input.files = e.dataTransfer.files;
+        updateFileName(inputId, labelId);
+        previewImages();
+      }
+    });
+
+    input.addEventListener("change", () => {
+      updateFileName(inputId, labelId);
+      previewImages();
+    });
+  }
+
+  function updateFileName(inputId, labelId) {
+    const file = document.getElementById(inputId).files[0];
+    const label = document.getElementById(labelId);
+    if (file) {
+      label.innerText = "📄 " + file.name;
+    } else {
+      label.innerText = "선택된 파일 없음";
+    }
+  }
+
+  setupDropZone("dropZoneLabel", "labelInput", "labelFileName");
+  setupDropZone("dropZoneDoc", "docInput", "docFileName");
 
   function previewImages() {
     const labelFile = document.getElementById("labelInput").files[0];
@@ -348,7 +398,7 @@
     const docFile = document.getElementById("docInput").files[0];
 
     if (!labelFile) {
-      alert("라벨 이미지를 등록해 주세요.");
+      alert("라벨 이미지를 먼저 등록해 주세요.");
       return;
     }
 
@@ -359,31 +409,34 @@
     loading.style.display = "block";
     document.getElementById("resultSplitView").style.display = "none";
 
+    let labelText = "";
+    let docText = "";
+
     try {
-      // 1. Tesseract.js 한국어 OCR 실행
-      loadingMsg.innerText = "🔍 1단계: 브라우저 Tesseract.js 라벨 OCR 판독 중...";
-      const labelOcrResult = await Tesseract.recognize(labelFile, 'kor+eng', {
-        logger: m => {
-          if (m.status === 'recognizing text') {
-            loadingMsg.innerText = `🔍 1단계: 라벨 글자 및 위치 좌표 판독 중... (${Math.round(m.progress * 100)}%)`;
-          }
-        }
-      });
-
-      const labelText = labelOcrResult.data.text;
-      ocrLines = labelOcrResult.data.lines || [];
-
-      // 2. 증빙서류 OCR (선택)
-      let docText = "";
-      if (docFile) {
-        loadingMsg.innerText = "🔍 2단계: 증빙서류 OCR 판독 중...";
-        const docOcrResult = await Tesseract.recognize(docFile, 'kor+eng');
-        docText = docOcrResult.data.text;
+      // 1. 라벨 OCR
+      loadingMsg.innerText = "🔍 1단계: Tesseract.js 라벨 OCR 판독 중...";
+      try {
+        const labelOcrResult = await Tesseract.recognize(labelFile, 'kor+eng');
+        labelText = labelOcrResult.data.text;
+        ocrLines = labelOcrResult.data.lines || [];
+      } catch (e) {
+        console.warn("Tesseract OCR 실패, 백엔드 Vision AI로 대체합니다.");
       }
 
-      // 3. 백엔드 AI 분석 요청
+      // 2. 증빙서류 OCR
+      if (docFile) {
+        loadingMsg.innerText = "🔍 2단계: 증빙서류 OCR 판독 중...";
+        try {
+          const docOcrResult = await Tesseract.recognize(docFile, 'kor+eng');
+          docText = docOcrResult.data.text;
+        } catch (e) {}
+      }
+
+      // 3. 백엔드로 바이너리 파일과 OCR 텍스트 동시 전송
       loadingMsg.innerText = "🔍 3단계: Cloudflare 72B 대형 AI 식약처 법령 검수 중...";
       const formData = new FormData();
+      formData.append("image", labelFile);
+      if (docFile) formData.append("doc", docFile);
       formData.append("labelText", labelText);
       formData.append("docText", docText);
 
@@ -405,7 +458,7 @@
 
     } catch (err) {
       loading.style.display = "none";
-      alert("분석 중 오류가 발생했습니다: " + err.message);
+      alert("분석 오류 발생: " + err.message);
     }
   }
 
