@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LabelGuard AI - 식약처 법령 검수 v1.7.0</title>
+  <title>LabelGuard AI - 식약처 법령 검수 v1.8.0</title>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     :root {
@@ -16,6 +16,7 @@
       --danger: #dc2626;
       --danger-bg: #fef2f2;
       --success: #16a34a;
+      --warning: #d97706;
       --info-bg: #eff6ff;
     }
 
@@ -239,9 +240,9 @@
   <div class="header">
     <h1>
       🛡️ LabelGuard AI
-      <span class="version-badge">v1.7.0</span>
+      <span class="version-badge">v1.8.0</span>
     </h1>
-    <p>하이브리드 교차 OCR & 정밀 주소 검증 관제 시스템</p>
+    <p>하이브리드 교차 OCR & 식약처 법령 정밀 관제 시스템</p>
   </div>
 
   <div class="card">
@@ -304,10 +305,10 @@
           </div>
         </div>
 
-        <h3>✅ 2. 적합 항목 (법적 타당성 설명)</h3>
+        <h3>✅ 2. 적합 항목 (식약처 고시 필수 표기사항 체크리스트)</h3>
         <table id="passTable">
           <thead>
-            <tr><th>검토 항목</th><th>상태</th><th>식약처 법령 및 적합 근거 사유</th></tr>
+            <tr><th>검토 항목</th><th>상태</th><th>식약처 관련 법령 및 적합 근거 사유</th></tr>
           </thead>
           <tbody></tbody>
         </table>
@@ -318,7 +319,7 @@
         <h3 style="margin-top: 20px;">📑 4. 증빙서류 교차 대조 (Cross-Check)</h3>
         <table id="crossTable">
           <thead>
-            <tr><th>대조 항목</th><th>상태</th><th>라벨 표기</th><th>증빙서류</th><th>비고/지침</th></tr>
+            <tr><th>대조 항목</th><th>상태</th><th>라벨 표기</th><th>증빙서류 기재내용</th><th>비고/지침</th></tr>
           </thead>
           <tbody></tbody>
         </table>
@@ -432,7 +433,7 @@
     let docText = "";
 
     try {
-      loadingMsg.innerText = "🔍 1단계: 브라우저 이미지 선명화 전처리 및 Tesseract OCR 판독 중...";
+      loadingMsg.innerText = "🔍 1단계: 브라우저 이미지 선명화 및 Tesseract OCR 판독 중...";
       try {
         const processedLabelBlob = await preprocessImage(labelFile);
         const labelOcrResult = await Tesseract.recognize(processedLabelBlob, 'kor+eng');
@@ -451,7 +452,7 @@
         } catch (e) {}
       }
 
-      loadingMsg.innerText = "🔍 3단계: 하이브리드 이중 OCR 교차 검증 및 70B AI 법령 검수 중...";
+      loadingMsg.innerText = "🔍 3단계: 식약처 고시 기준 정밀 법령 검수 및 교차 대조 중...";
       const formData = new FormData();
       formData.append("image", labelFile);
       if (docFile) formData.append("doc", docFile);
@@ -563,12 +564,17 @@
         const statusBadge = isMatch 
           ? '<span class="badge badge-pass">일치</span>' 
           : '<span class="badge badge-fail">불일치</span>';
+        
+        const noteText = (item.note && item.note.includes("자료확인불가")) 
+          ? `<strong style="color:var(--danger);">${item.note}</strong>` 
+          : (item.note || '-');
+
         tr.innerHTML = `
           <td>${item.item || '-'}</td>
           <td>${statusBadge}</td>
           <td>${item.label_value || '-'}</td>
           <td>${item.doc_value || '-'}</td>
-          <td>${item.note || '-'}</td>
+          <td>${noteText}</td>
         `;
         crossTbody.appendChild(tr);
       });
