@@ -57,16 +57,16 @@ function parseAIJSON(raw) {
   try { return JSON.parse(repStr); } catch (e) { return null; }
 }
 
-// 2. 마크다운 방어 정규식 추출기 (의무/선택 항목 엄격 분리)
+// 2. 마크다운 방어 정규식 추출기 (OCR 실패 감지 로직 추가)
 function regexExtractLLMJSON(raw) {
   if (!raw || typeof raw !== "string") return null;
 
-  let summary = "식약처 법령 검수 완료";
+  let summary = "분석 결과 텍스트가 불분명합니다.";
   const sumMatch = raw.match(/"summary"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
   if (sumMatch && sumMatch[1]) summary = sumMatch[1];
 
-  let productName = "추출 대기중";
-  let foodType = "즉석조리식품"; 
+  let productName = "판독 불가";
+  let foodType = "판독 불가"; 
 
   const prodMatch = raw.match(/"product_name"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
   if (prodMatch && prodMatch[1]) productName = prodMatch[1];
@@ -76,7 +76,6 @@ function regexExtractLLMJSON(raw) {
 
   if (productName.includes("일르") || productName.includes("알크레")) productName = productName.replace(/일르|알크레/, "얼큰");
 
-  // 법정 필수 표기항목 (passed_items) 추출
   let passedItems = [];
   const passedSectionMatch = raw.match(/"passed_items"\s*:\s*\[([\s\S]*?)\]\s*,/i);
   if (passedSectionMatch && passedSectionMatch[1]) {
@@ -87,7 +86,6 @@ function regexExtractLLMJSON(raw) {
     }
   }
 
-  // 선택 표기항목 (optional_items) 추출
   let optionalItems = [];
   const optionalSectionMatch = raw.match(/"optional_items"\s*:\s*\[([\s\S]*?)\]\s*,/i);
   if (optionalSectionMatch && optionalSectionMatch[1]) {
@@ -98,7 +96,6 @@ function regexExtractLLMJSON(raw) {
     }
   }
 
-  // 누락/위반 항목 (failed_items) 추출
   let failedItems = [];
   const failedRegex = /\{\s*"item_name"\s*:\s*"([^"]+)"\s*,\s*"found_text"\s*:\s*"([^"]+)"\s*,\s*"issue_reason"\s*:\s*"([^"]+)"\s*,\s*"law"\s*:\s*"([^"]+)"\s*,\s*"how_to_improve"\s*:\s*"([^"]+)"\s*\}/gi;
   let fMatch;
@@ -108,7 +105,6 @@ function regexExtractLLMJSON(raw) {
     });
   }
 
-  // 증빙서류 교차 대조 (cross_check) 추출
   let crossCheck = [];
   const crossRegex = /\{\s*"item"\s*:\s*"([^"]+)"\s*,\s*"status"\s*:\s*"([^"]+)"\s*,\s*"label_value"\s*:\s*"([^"]+)"\s*,\s*"doc_value"\s*:\s*"([^"]+)"\s*,\s*"note"\s*:\s*"([^"]+)"\s*\}/gi;
   let cMatch;
@@ -118,12 +114,24 @@ function regexExtractLLMJSON(raw) {
     });
   }
 
+  // 📌 OCR 판독 실패 또는 AI 환각 시 정직한 에러 처리 (가짜 데이터 방지)
+  if (passedItems.length === 0 && failedItems.length === 0 && optionalItems.length === 0) {
+    summary = "이미지 텍스트를 제대로 인식하지 못해 검수를 진행할 수 없습니다.";
+    failedItems.push({
+      item_name: "텍스트 판독 실패",
+      found_text: "인식된 데이터 없음",
+      issue_reason: "이미지 해상도가 낮거나 배경색/폰트 문제로 인해 OCR 엔진이 라벨 텍스트를 정상적으로 추출하지 못했습니다.",
+      law: "판독 불가",
+      how_to_improve: "빛 반사가 없고 글자가 선명하게 보이는 이미지를 다시 업로드해 주세요."
+    });
+  }
+
   return {
     summary: summary,
     analyzed_summary: {
       product_name: productName,
       food_type: foodType,
-      detected_items_count: passedItems.length + failedItems.length + optionalItems.length || 0
+      detected_items_count: passedItems.length + failedItems.length + optionalItems.length
     },
     passed_items: passedItems,
     optional_items: optionalItems,
@@ -132,34 +140,42 @@ function regexExtractLLMJSON(raw) {
   };
 }
 
-// 3. 증빙서류/주소 강제 검증 로직
 function enforceStrictValidation(data) {
-  if (!data || !data.cross_check) return data;
-  data.cross_check.forEach(item => {
-    const labelVal = (item.label_value || "").trim();
-    const docVal = (item.doc_value || "").trim();
-    const itemName = item.item || "";
+  if (!data) return data;
+  
+  // OCR 실패 상태면 주소 대조 생략
+  if (data.failed_items && data.failed_items.some(i => i.item_name === "텍스트 판독 실패")) {
+    data.cross_check = [];
+    return data;
+  }
 
-    if (docVal.includes("미제출") || docVal === "" || docVal.includes("없음")) {
-      item.status = "mismatch"; item.doc_value = "증빙서류 미제출"; item.note = "자료확인불가";
-      return;
-    }
+  if (data.cross_check) {
+    data.cross_check.forEach(item => {
+      const labelVal = (item.label_value || "").trim();
+      const docVal = (item.doc_value || "").trim();
+      const itemName = item.item || "";
 
-    if (itemName.includes("주소") || itemName.includes("소재지")) {
-      const cleanLabel = labelVal.replace(/\s+/g, "");
-      const cleanDoc = docVal.replace(/\s+/g, "");
-      if (cleanLabel !== cleanDoc) {
-        item.status = "mismatch";
-        if (cleanDoc.length > cleanLabel.length) {
-          item.note = "사업자등록증상의 상세주소가 라벨 표기에서 누락되어 불일치함";
-        } else {
-          item.note = "라벨 표기 주소와 사업자등록증 주소가 일치하지 않음";
-        }
-      } else {
-        item.status = "match"; item.note = "일치함";
+      if (docVal.includes("미제출") || docVal === "" || docVal.includes("없음")) {
+        item.status = "mismatch"; item.doc_value = "증빙서류 미제출"; item.note = "자료확인불가";
+        return;
       }
-    }
-  });
+
+      if (itemName.includes("주소") || itemName.includes("소재지")) {
+        const cleanLabel = labelVal.replace(/\s+/g, "");
+        const cleanDoc = docVal.replace(/\s+/g, "");
+        if (cleanLabel !== cleanDoc) {
+          item.status = "mismatch";
+          if (cleanDoc.length > cleanLabel.length) {
+            item.note = "사업자등록증상의 상세주소가 라벨 표기에서 누락되어 불일치함";
+          } else {
+            item.note = "라벨 표기 주소와 사업자등록증 주소가 일치하지 않음";
+          }
+        } else {
+          item.status = "match"; item.note = "일치함";
+        }
+      }
+    });
+  }
   return data;
 }
 
@@ -177,7 +193,7 @@ export default {
     const textModel = "@cf/meta/llama-3.1-70b-instruct";
 
     if (request.method === "GET") {
-      return new Response("🎉 LabelGuard AI v2.3.0 식품공전 필수항목 전수검사 엔진 가동 중!", {
+      return new Response("🎉 LabelGuard AI v2.4.0 식품유형 동적 매핑 & 에러 감지 엔진 가동 중!", {
         headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
       });
     }
@@ -197,7 +213,7 @@ export default {
         const labelBuffer = await labelFile.arrayBuffer();
         const labelBytes = Array.from(new Uint8Array(labelBuffer));
         const visionOcrRes = await env.AI.run(visionModel, {
-          prompt: "이 라벨 사진의 모든 한글 텍스트(제품명, 규격, 원재료명, 소비기한, 보관방법, 업소명 및 소재지, 영양성분, 주의사항 등)를 정확히 읽으세요.",
+          prompt: "이 라벨 사진의 모든 한글 텍스트(제품명, 규격, 원재료명, 소비기한, 보관방법, 업소명 및 소재지, 영양성분, 주의사항 등)를 정확히 읽으세요. 읽을 수 없다면 '인식 불가'라고 응답하세요.",
           image: labelBytes
         });
         const visionLabelText = visionOcrRes.response || "";
@@ -209,7 +225,7 @@ export default {
             if (docBuffer && docBuffer.byteLength > 0) {
               const docBytes = Array.from(new Uint8Array(docBuffer));
               const docOcrRes = await env.AI.run(visionModel, {
-                prompt: "이 증빙 문서(사업자등록증)의 상호명, 대표자, 사업장 소재지를 읽으세요.",
+                prompt: "이 증빙 문서의 상호명, 대표자, 사업장 소재지를 읽으세요.",
                 image: docBytes
               });
               visionDocText = docOcrRes.response || "";
@@ -221,32 +237,31 @@ export default {
 [OCR 추출 텍스트] (Tesseract: ${tesseractLabelText} / Vision AI: ${visionLabelText})
 [증빙서류 텍스트] (${tesseractDocText || visionDocText || "증빙서류 미제출"})
 
-[완벽 검수 3대 지침 - 절대 엄수]
-1. [식품유형 정규화]: '주식조리식품' 등 잘못된 단어는 식약처 공식 용어(예: 즉석조리식품)로 자동 교정하세요. 오타(일르해장국 등)는 문맥에 맞게(얼큰해장국) 교정하세요.
-2. [법정 필수 표시항목 전수 검사]: 해당 식품유형에 반드시 들어가야 하는 아래 11개 항목이 라벨에 있는지 전수 대조하세요.
-   * 의무 체크리스트: 제품명, 식품유형, 영업소 명칭 및 소재지, 소비기한, 내용량/열량, 원재료명, 영양성분, 용기·포장 재질, 품목보고번호, 보관방법, 주의사항.
-   * 위 11개 필수 항목 중 라벨에 정상 표기된 것은 'passed_items'에, 누락되거나 위반된 것은 반드시 'failed_items'에 넣으세요.
-3. [선택/추가 항목 분리]: 위 11개 필수 항목이 아닌 기타 표기사항(소비자상담실, 조리방법, 교환 및 환불, 바코드 등)은 법적 의무가 아니므로 **무조건 'optional_items' 배열**에 넣으세요. 절대 passed_items에 섞지 마세요.
+[완벽 검수 4대 지침 - 절대 엄수]
+1. [OCR 판독 점검]: 제공된 OCR 텍스트가 의미 없는 기호투성이거나 내용이 거의 없다면, 절대 지어내지 말고 failed_items에 "텍스트 판독 실패" 1개만 넣고 검수를 중단하세요.
+2. [식품공전 동적 매핑]: 추출된 텍스트에서 '식품유형'을 먼저 파악하세요 (예: 즉석조리식품, 빵류, 도자기제 등). 그리고 대한민국 '식품등의 표시기준'에 따라 **해당 특정 식품유형에만 요구되는 필수 표시사항 목록을 동적으로 구성하여 비교**하세요. (모든 품목이 내용량, 영양성분을 요구하지 않으므로 유형에 맞게 대조할 것).
+3. [필수 vs 선택 분리]: 해당 유형의 '법정 의무 표기사항'만 passed_items(적합) 또는 failed_items(누락)로 평가하세요. 법적 의무가 없는 정보(조리방법, 소비자상담실, 반품처 등)는 모두 'optional_items' 배열로 분리하세요.
+4. [교차 대조]: 증빙서류 미제출시 판매원은 status: "mismatch", note: "자료확인불가" 처리.
 
-[응답 JSON 규격 - 오직 지정된 포맷으로만 답변]
+[JSON 응답 규격]
 {
-  "summary": "검수 결과 총평",
+  "summary": "검수 결과 총평 (또는 판독 실패 안내)",
   "analyzed_summary": {
-    "product_name": "교정된 제품명",
-    "food_type": "식품공전 기준 공식 식품유형",
+    "product_name": "제품명",
+    "food_type": "식별된 식품유형",
     "detected_items_count": 0
   },
   "passed_items": [
-    { "name": "법정 필수 항목명 (예: 원재료명)", "detail": "적합 사유 및 표기 내용" }
+    { "name": "해당 유형 법정 필수 항목", "detail": "적합 사유" }
   ],
   "optional_items": [
-    { "name": "선택 추가 항목명 (예: 소비자상담실)", "detail": "추가 기재된 내용 설명" }
+    { "name": "선택/추가 항목", "detail": "내용 요약" }
   ],
   "failed_items": [
-    { "item_name": "누락/위반 필수 항목명", "found_text": "검출 문구 또는 누락", "issue_reason": "필수 표시항목 누락/위반 사유", "law": "관련 법령", "how_to_improve": "개선 가이드" }
+    { "item_name": "위반/누락 항목명", "found_text": "검출 문구", "issue_reason": "누락/위반 사유", "law": "관련 법령", "how_to_improve": "가이드" }
   ],
   "cross_check": [
-    { "item": "영업소 상호 및 소재지 대조", "status": "mismatch", "label_value": "라벨", "doc_value": "증빙서류", "note": "비고" }
+    { "item": "대조 항목", "status": "mismatch", "label_value": "라벨", "doc_value": "서류", "note": "비고" }
   ]
 }`;
 
