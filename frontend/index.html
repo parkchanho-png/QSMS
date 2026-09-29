@@ -151,8 +151,7 @@
   </main>
 
   <script>
-    // ⚠️ 아래 큰따옴표 안에 생성하신 Cloudflare Worker URL 주소를 넣으세요.
-    const WORKER_URL = 'https://label-compliance-checker-backend.본인아이디.workers.dev';
+    const WORKER_URL = 'https://qsms.park-chanho.workers.dev';
 
     lucide.createIcons();
 
@@ -211,7 +210,6 @@
       resultDashboard.classList.add('hidden');
     });
 
-    // 백엔드 API 연동 분석
     analyzeBtn.addEventListener('click', async () => {
       if (!selectedFile) return;
 
@@ -240,7 +238,7 @@
           }
           renderRealResults(parsed);
         } else {
-          alert('AI 분석에 실패했습니다. 백엔드 URL을 확인해 주세요.');
+          alert('AI 분석에 실패했습니다. 서버 상태를 확인해 주세요.');
         }
       } catch (err) {
         console.error(err);
