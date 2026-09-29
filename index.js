@@ -1,3 +1,34 @@
+// AI 응답 텍스트 구문 오류 및 줄바꿈 보정 함수
+function parseAIJSON(raw) {
+  let str = typeof raw === "string" ? raw : JSON.stringify(raw);
+
+  // 마크다운 블록 및 앞뒤 공백 제거
+  str = str.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+
+  // 최초 '{' 와 마지막 '}' 사이의 JSON 본문 데이터만 정밀 추출
+  const start = str.indexOf('{');
+  const end = str.lastIndexOf('}');
+  if (start !== -1 && end > start) {
+    str = str.slice(start, end + 1);
+  }
+
+  // 1차 시도: 기본 파싱
+  try {
+    return JSON.parse(str);
+  } catch (e) {
+    // 2차 시도: 줄바꿈, 제어문자 및 불필요 쉼표 보정 후 파싱
+    try {
+      let fixed = str
+        .replace(/,\s*([}\]])/g, "$1") // 트레일링 코마 제거
+        .replace(/[\r\n]+/g, " ")       // 문자열 내 실제 줄바꿈을 공백 처리
+        .replace(/[\u0000-\u001F]+/g, " ");
+      return JSON.parse(fixed);
+    } catch (e2) {
+      return null;
+    }
+  }
+}
+
 export default {
   async fetch(request, env) {
     const corsHeaders = {
@@ -17,7 +48,7 @@ export default {
         if (env.AI) {
           await env.AI.run(modelName, { prompt: "agree" }).catch(() => {});
         }
-        return new Response("🎉 식약처 법령 정밀 검수 및 개선 가이드 엔진이 정상 가동 중입니다!", {
+        return new Response("🎉 식약처 법령 정밀 검수 및 개선 가이드 엔진 가동 중!", {
           headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
         });
       } catch (err) {
@@ -66,41 +97,41 @@ export default {
         }
 
         const prompt = `You are an official Korean Food Safety Authority (MFDS) inspector.
-Analyze the label/advertisement image and return ONLY a valid JSON object matching the schema below.
-CRITICAL RULE: DO NOT write any introduction or explanation text. Start immediately with '{' and end with '}'.
+Analyze the images and respond strictly with valid JSON.
+CRITICAL RULE: Do NOT include line breaks inside text values. Keep strings single-lined.
 
 ${docCheckPrompt}
 
-[REQUIRED JSON SCHEMA]
+[JSON SCHEMA]
 {
   "summary": "전체 검수 결과 총평 (예: 총 9개 항목 중 7개 적합, 2개 항목 위반 검출)",
   "analyzed_summary": {
-    "product_name": "이미지에서 추출된 제품명 (없으면 '미기재')",
-    "food_type": "이미지에서 추출된 식품유형 (없으면 '미기재')",
+    "product_name": "이미지에서 추출된 제품명",
+    "food_type": "이미지에서 추출된 식품유형",
     "detected_items_count": 9
   },
   "passed_items": [
     {
-      "name": "적합 항목명 (예: 제품명)",
+      "name": "적합 항목명",
       "detail": "인식된 내용 및 적합 사유"
     }
   ],
   "failed_items": [
     {
-      "item_name": "위반 항목명 (예: 부당한 표시·광고 / 소비기한 누락)",
-      "found_text": "라벨에서 검출된 위반/문제 문구",
-      "issue_reason": "무엇이 문제인지 상세 원인 및 소비 오인 위험 설명",
-      "law": "관련 법령 (예: 식품등의 표시·광고에 관한 법률 제8조 제1항)",
-      "how_to_improve": "어떻게 수정/개선해야 하는지 구체적인 가이드라인 및 추천 대체 문구"
+      "item_name": "위반 항목명",
+      "found_text": "검출된 위반 문구",
+      "issue_reason": "위반 원인 및 소비 오인 위험 설명",
+      "law": "관련 법령 조항",
+      "how_to_improve": "수정 가이드라인 및 추천 대체 문구"
     }
   ],
   "cross_check": [
     {
-      "item": "검수 항목 (예: 원재료명 및 함량)",
+      "item": "검수 항목",
       "status": "match",
       "label_value": "라벨 표기 내용",
       "doc_value": "증빙서류 내용",
-      "note": "일치 여부 및 개선 필요사항"
+      "note": "비고 및 개선 가이드"
     }
   ]
 }`;
@@ -113,28 +144,20 @@ ${docCheckPrompt}
         });
 
         let rawText = aiResponse.response || aiResponse;
-        if (typeof rawText !== "string") {
-          rawText = JSON.stringify(rawText);
-        }
+        let parsedJson = parseAIJSON(rawText);
 
-        let finalJsonObj = null;
-        try {
-          let cleanStr = rawText.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
-          const jsonMatch = cleanStr.match(/\{[\s\S]*\}/);
-          if (jsonMatch) cleanStr = jsonMatch[0];
-          finalJsonObj = JSON.parse(cleanStr);
-        } catch (parseError) {
-          finalJsonObj = {
-            summary: "AI 분석 결과를 리포트 규격으로 변환했습니다.",
-            analyzed_summary: { product_name: "라벨 분석", food_type: "일반식품", detected_items_count: 1 },
-            passed_items: [{ name: "이미지 텍스트 가독성", detail: "라벨 텍스트가 정상적으로 인식되었습니다." }],
+        if (!parsedJson) {
+          parsedJson = {
+            summary: "AI 분석 결과 데이터 정제 실패 (재분석 필요)",
+            analyzed_summary: { product_name: "라벨 분석", food_type: "식품", detected_items_count: 1 },
+            passed_items: [{ name: "이미지 수신", detail: "라벨 이미지가 성공적으로 업로드되었습니다." }],
             failed_items: [
               {
-                item_name: "분석 내용 정제 필요",
-                found_text: "AI 응답 원문 수신",
-                issue_reason: rawText,
+                item_name: "AI 데이터 형식 오류",
+                found_text: "구문 해석 실패",
+                issue_reason: "AI 응답 파싱 중 오류가 발생했습니다.",
                 law: "식품등의 표시·광고에 관한 법률",
-                how_to_improve: "위 원문 텍스트 내용을 바탕으로 표시사항 수정 여부를 확인하세요."
+                how_to_improve: "다시 한 번 [검수 및 개선가이드 생성] 버튼을 눌러주세요."
               }
             ],
             cross_check: []
@@ -142,7 +165,7 @@ ${docCheckPrompt}
         }
 
         return new Response(
-          JSON.stringify({ success: true, result: finalJsonObj }),
+          JSON.stringify({ success: true, result: parsedJson }),
           { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
 
