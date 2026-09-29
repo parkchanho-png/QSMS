@@ -6,6 +6,9 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
+// 딜레이 도우미
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 // 📌 1단계: 마크다운 기호 정제 및 안전 JSON 파서
 function parseAIJSON(raw) {
   if (!raw) return null;
@@ -78,12 +81,12 @@ export default {
     // 🔍 진단 모드 (GET)
     if (request.method === "GET") {
       if (!geminiApiKey) return new Response(JSON.stringify({ status: "ERROR", message: "API 키 없음" }), { headers: corsHeaders });
-      return new Response(JSON.stringify({ system: "LabelGuard AI v3.8.0 (1.5 완전 배제, 3.6 -> 2.5 -> Gemma 다중 폴백 적용)", note: "Cloudflare 코드 덮어쓰기 성공!" }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
+      return new Response(JSON.stringify({ system: "LabelGuard AI v3.9.0 (503 자동 재시도 적용 완료)", note: "Cloudflare 코드 정상 가동 중" }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
     }
 
     if (request.method === "POST") {
       try {
-        if (!geminiApiKey) throw new Error("[v3.8.0 오류] 서버 환경 변수(GEMINI_API_KEY)가 없습니다.");
+        if (!geminiApiKey) throw new Error("[v3.9.0 오류] 서버 환경 변수(GEMINI_API_KEY)가 없습니다.");
 
         const formData = await request.formData();
         const labelFile = formData.get("image");
@@ -108,43 +111,43 @@ export default {
 }`;
         contentsParts.unshift({ text: promptText });
 
-        // 📌 1.5 모델은 싹 지우고, 대시보드에 실제로 있는 최신 모델 3대장으로만 구성!
-        let candidateModels = [
-          "gemini-3.6-flash",
-          "gemini-2.5-flash", 
-          "gemma-4-26b"
-        ];
-        
+        const targetModel = "gemini-3.6-flash";
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${geminiApiKey}`;
+        const requestBody = { contents: [{ parts: contentsParts }], generationConfig: { responseMimeType: "application/json", temperature: 0.1 } };
+
         let rawResponseText = "";
         let lastErrorLog = "";
-        let successfulModel = "";
+        const maxRetries = 3;
 
-        for (const modelName of candidateModels) {
-          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
-          const requestBody = { contents: [{ parts: contentsParts }], generationConfig: { responseMimeType: "application/json", temperature: 0.1 } };
-          const geminiRes = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
-          
+        // 📌 503(과부하) 또는 429(요청 초과) 에러 발생 시 최대 3회 재시도 (1.5초 간격)
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+          const geminiRes = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody)
+          });
+
           if (geminiRes.ok) {
             const data = await geminiRes.json();
             rawResponseText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-            if (rawResponseText) {
-              successfulModel = modelName;
-              break; // 성공하면 즉시 루프 탈출
-            }
+            if (rawResponseText) break;
           } else {
-            const errTxt = await geminiRes.text();
-            lastErrorLog += `[${modelName} 실패]: ${errTxt.substring(0, 100)}... | `;
+            lastErrorLog = await geminiRes.text();
+            if ((geminiRes.status === 503 || geminiRes.status === 429) && attempt < maxRetries) {
+              await delay(1500);
+            } else {
+              break;
+            }
           }
         }
 
-        // 🚨 모든 최신 모델이 다 거절했을 경우 에러 내뱉기
-        if (!rawResponseText) throw new Error(`[v3.8.0 서버 오류] 모든 모델 응답 실패. 로그: ${lastErrorLog}`);
+        if (!rawResponseText) throw new Error(`[v3.9.0 서버 오류] ${targetModel} 요청 실패. 로그: ${lastErrorLog.substring(0, 150)}`);
 
         let parsedResult = parseAIJSON(rawResponseText) || regexExtractLLMJSON(rawResponseText);
-        if (!parsedResult) throw new Error(`[v3.8.0 서버 오류] ${successfulModel} 모델의 응답 데이터 파싱 실패`);
+        if (!parsedResult) throw new Error("[v3.9.0 서버 오류] AI 응답 데이터 파싱 실패");
         parsedResult = enforceStrictValidation(parsedResult);
 
-        return new Response(JSON.stringify({ success: true, result: parsedResult, used_model: successfulModel }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
+        return new Response(JSON.stringify({ success: true, result: parsedResult }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
 
       } catch (err) {
         return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
