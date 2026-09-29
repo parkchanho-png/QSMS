@@ -15,7 +15,6 @@
       --danger: #dc2626;
       --danger-bg: #fef2f2;
       --success: #16a34a;
-      --success-bg: #f0fdf4;
       --info-bg: #eff6ff;
     }
 
@@ -153,7 +152,6 @@
     .badge-pass { background: #dcfce7; color: #166534; }
     .badge-fail { background: #fee2e2; color: #991b1b; }
 
-    /* 위반 및 개선 필요 카드 UI */
     .fail-card {
       background: var(--danger-bg);
       border: 1px solid #fca5a5;
@@ -226,7 +224,6 @@
     <h2 style="margin-top:0;">📋 검수 종합 리포트</h2>
     <div class="summary-box" id="summaryText"></div>
 
-    <!-- 1. 분석 개요 -->
     <h3>🔍 1. 분석 개요 (어떤 것을 분석했는가)</h3>
     <div class="overview-grid">
       <div class="overview-item">
@@ -243,7 +240,6 @@
       </div>
     </div>
 
-    <!-- 2. 정상 항목 -->
     <h3>✅ 2. 적합 항목 (문제가 없는 사항)</h3>
     <table id="passTable">
       <thead>
@@ -256,11 +252,9 @@
       <tbody></tbody>
     </table>
 
-    <!-- 3. 위반 및 개선 필요 항목 -->
     <h3 style="margin-top: 28px; color: var(--danger);">🚨 3. 위반 및 개선 필요 항목 (무엇이 문제이며 어떻게 개선할까)</h3>
     <div id="failListArea"></div>
 
-    <!-- 4. 증빙서류 교차 대조 -->
     <h3 style="margin-top: 28px;">📑 4. 증빙서류 교차 대조 (Cross-Check)</h3>
     <table id="crossTable">
       <thead>
@@ -323,13 +317,11 @@
     document.getElementById("resultCard").style.display = "block";
     document.getElementById("summaryText").innerText = res.summary || "분석이 완료되었습니다.";
 
-    // 1. 분석 개요 정보
     const summaryInfo = res.analyzed_summary || {};
     document.getElementById("infoProduct").innerText = summaryInfo.product_name || "확인됨";
     document.getElementById("infoType").innerText = summaryInfo.food_type || "확인됨";
     document.getElementById("infoCount").innerText = (summaryInfo.detected_items_count || 9) + "개 항목";
 
-    // 2. 적합 항목 Rendering
     const passTbody = document.querySelector("#passTable tbody");
     passTbody.innerHTML = "";
     if (res.passed_items && res.passed_items.length > 0) {
@@ -338,15 +330,14 @@
         tr.innerHTML = `
           <td><strong>${item.name || '-'}</strong></td>
           <td><span class="badge badge-pass">적합</span></td>
-          <td>${item.detail || '식약처 법령 기준에 맞게 올바르게 표기되었습니다.'}</td>
+          <td>${item.detail || '식약처 법령 기준에 맞게 표기되었습니다.'}</td>
         `;
         passTbody.appendChild(tr);
       });
     } else {
-      passTbody.innerHTML = "<tr><td colspan='3'>적합 항목 정보를 가져올 수 없습니다.</td></tr>";
+      passTbody.innerHTML = "<tr><td colspan='3'>적합 항목 정보를 불러올 수 없습니다.</td></tr>";
     }
 
-    // 3. 위반 및 개선 필요 항목 Rendering (카드 형태)
     const failListArea = document.getElementById("failListArea");
     failListArea.innerHTML = "";
     if (res.failed_items && res.failed_items.length > 0) {
@@ -369,7 +360,6 @@
       failListArea.innerHTML = "<div style='padding:16px; background:#f0fdf4; color:#166534; border-radius:8px; font-weight:bold;'>🎉 위반사항 및 개선 필요 항목이 검출되지 않았습니다.</div>";
     }
 
-    // 4. 교차 검수 테이블 Rendering
     const crossTbody = document.querySelector("#crossTable tbody");
     crossTbody.innerHTML = "";
     if (res.cross_check && res.cross_check.length > 0) {
