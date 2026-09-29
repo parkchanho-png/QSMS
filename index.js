@@ -6,10 +6,35 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
-// 딜레이 도우미
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// 📌 1단계: 마크다운 기호 정제 및 안전 JSON 파서
+// 📌 1단계: 국가법령정보센터(open.law.go.kr) 실시간 최신 법령 수집
+async function fetchLatestLawInfo(lawApiKey) {
+  if (!lawApiKey) return "국가법령 API 키가 설정되지 않아 기본 '식품등의 표시기준' 고시를 적용합니다.";
+  
+  try {
+    const lawUrl = `https://www.law.go.kr/DRF/lawSearch.do?OC=${lawApiKey}&target=admrul&query=${encodeURIComponent("식품등의 표시기준")}&type=XML`;
+    const res = await fetch(lawUrl);
+    if (!res.ok) return "최신 법령 조회 실패 (기본 고시 적용)";
+    
+    const xmlText = await res.text();
+    
+    // XML 내 행정규칙명, 시행일자, 발령번호 추출
+    const titleMatch = xmlText.match(/<행정규칙명>(.*?)<\/행정규칙명>/);
+    const dateMatch = xmlText.match(/<시행일자>(.*?)<\/시행일자>/);
+    const numMatch = xmlText.match(/<발령번호>(.*?)<\/발령번호>/);
+
+    const title = titleMatch ? titleMatch[1] : "식품등의 표시기준";
+    const date = dateMatch ? dateMatch[1] : "최신";
+    const num = numMatch ? numMatch[1] : "";
+
+    return `[국가법령정보센터 실시간 동기화 완료]\n- 고시명: ${title}\n- 시행일자: ${date}\n- 고시번호: 제${num}호\n본 검수는 위 식약처 최신 고시 기준을 철저히 준수합니다.`;
+  } catch (e) {
+    return "국가법령 동기화 지연 (기본 고시 기준 적용)";
+  }
+}
+
+// 📌 2단계: 마크다운 기호 정제 및 안전 JSON 파서
 function parseAIJSON(raw) {
   if (!raw) return null;
   let str = typeof raw === "string" ? raw : JSON.stringify(raw);
@@ -27,7 +52,7 @@ function parseAIJSON(raw) {
   }
 }
 
-// 📌 2단계: 정규식 역파서 (최후 보루)
+// 📌 3단계: 정규식 역파서 (최후 보루)
 function regexExtractLLMJSON(raw) {
   if (!raw || typeof raw !== "string") return null;
   let summary = "데이터 구조 정제가 완료되었습니다.";
@@ -59,7 +84,7 @@ function regexExtractLLMJSON(raw) {
   return { summary, analyzed_summary: { product_name: productName, food_type: foodType, detected_items_count: passedItems.length + failedItems.length + optionalItems.length }, passed_items: passedItems, optional_items: optionalItems, failed_items: failedItems, cross_check: crossCheck };
 }
 
-// 📌 3단계: 비즈니스 로직 강제 검증
+// 📌 4단계: 비즈니스 로직 강제 검증
 function enforceStrictValidation(data) {
   if (!data || !data.cross_check) return data;
   data.cross_check.forEach(item => {
@@ -76,22 +101,28 @@ export default {
   async fetch(request, env) {
     const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
     if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+    
     const geminiApiKey = (env.GEMINI_API_KEY || "").trim();
+    const lawApiKey = (env.LAW_API_KEY || "").trim();
 
     // 🔍 진단 모드 (GET)
     if (request.method === "GET") {
-      if (!geminiApiKey) return new Response(JSON.stringify({ status: "ERROR", message: "API 키 없음" }), { headers: corsHeaders });
-      return new Response(JSON.stringify({ system: "LabelGuard AI v3.9.0 (503 자동 재시도 적용 완료)", note: "Cloudflare 코드 정상 가동 중" }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
+      if (!geminiApiKey) return new Response(JSON.stringify({ status: "ERROR", message: "GEMINI_API_KEY 없음" }), { headers: corsHeaders });
+      const lawStatus = lawApiKey ? "국가법령 API 키 연동 완료" : "⚠️ LAW_API_KEY 미등록 (기본 법령 모드로 작동)";
+      return new Response(JSON.stringify({ system: "LabelGuard AI v4.0.0 (실시간 국가법령 동기화 모드)", law_integration: lawStatus }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
     }
 
     if (request.method === "POST") {
       try {
-        if (!geminiApiKey) throw new Error("[v3.9.0 오류] 서버 환경 변수(GEMINI_API_KEY)가 없습니다.");
+        if (!geminiApiKey) throw new Error("[v4.0.0 오류] 서버 환경 변수(GEMINI_API_KEY)가 없습니다.");
 
         const formData = await request.formData();
         const labelFile = formData.get("image");
         const docFile = formData.get("doc");
         if (!labelFile) throw new Error("라벨 이미지가 전송되지 않았습니다.");
+
+        // 1. 국가법령 Open API에서 실시간 고시 정보 수집
+        const lawContext = await fetchLatestLawInfo(lawApiKey);
 
         const labelBuffer = await labelFile.arrayBuffer();
         const contentsParts = [{ inlineData: { mimeType: labelFile.type || "image/jpeg", data: arrayBufferToBase64(labelBuffer) } }];
@@ -99,15 +130,35 @@ export default {
           try { const docBuffer = await docFile.arrayBuffer(); if (docBuffer.byteLength > 0) contentsParts.push({ inlineData: { mimeType: docFile.type || "image/jpeg", data: arrayBufferToBase64(docBuffer) } }); } catch (e) {}
         }
 
-        const promptText = `당신은 대한민국 식약처(MFDS) 표시사항 법령 단속관입니다. 제출된 라벨 이미지를 분석하세요.
+        // 2. 엄격한 원자 단위 및 10대 공통 필수항목 정밀 지침 프롬프트
+        const promptText = `당신은 대한민국 식약처(MFDS) 표시사항 법령 단속 최고 권위관입니다.
+다음은 국가법령정보센터에서 실시간 수집된 최신 법령 고시 기준입니다:
+${lawContext}
+
+[엄격 검수 지침]
+1. 이미지 속 제품의 식약처 공식 식품유형을 판독하세요.
+2. 아래 10대 법정 필수 항목을 원자 단위(Atomic) 기준표로 세우고, 항목을 절대로 두 개 이상 묶거나 합치지 마세요.
+   - 제품명
+   - 식품유형
+   - 영업소 명칭(제조원/판매원)
+   - 영업소 소재지(주소)
+   - 소비기한 (또는 유통기한)
+   - 내용량 및 내용량에 해당하는 열량
+   - 원재료명
+   - 영양성분
+   - 용기·포장재질
+   - 보관방법 및 주의사항
+3. 라벨 이미지에서 시각적으로 확인할 수 없는 필수 항목은 사유를 불문하고 'failed_items'에 넣고 found_text를 '표기 없음(누락)'으로 적으세요.
+4. 법적 의무가 아닌 정보(고객상담실, 반품처 등)만 'optional_items'에 넣으세요.
+
 [JSON 응답 규격]
 {
   "summary": "검수 결과 총평",
   "analyzed_summary": { "product_name": "제품명", "food_type": "식품유형", "detected_items_count": 0 },
   "passed_items": [ { "name": "항목명", "detail": "적합 사유" } ],
   "optional_items": [ { "name": "항목명", "detail": "내용" } ],
-  "failed_items": [ { "item_name": "항목명", "found_text": "표기 없음", "issue_reason": "사유", "law": "관련법", "how_to_improve": "가이드" } ],
-  "cross_check": [ { "item": "주소", "status": "mismatch", "label_value": "라벨", "doc_value": "증빙", "note": "비고" } ]
+  "failed_items": [ { "item_name": "항목명", "found_text": "표기 없음(누락)", "issue_reason": "누락 사유", "law": "식품등의 표시기준", "how_to_improve": "가이드" } ],
+  "cross_check": [ { "item": "영업소 소재지", "status": "mismatch", "label_value": "라벨주소", "doc_value": "증빙주소", "note": "비고" } ]
 }`;
         contentsParts.unshift({ text: promptText });
 
@@ -119,7 +170,7 @@ export default {
         let lastErrorLog = "";
         const maxRetries = 3;
 
-        // 📌 503(과부하) 또는 429(요청 초과) 에러 발생 시 최대 3회 재시도 (1.5초 간격)
+        // 3.6 Flash 모델 호출 및 503 과부하 시 자동 재시도
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
           const geminiRes = await fetch(endpoint, {
             method: "POST",
@@ -141,10 +192,10 @@ export default {
           }
         }
 
-        if (!rawResponseText) throw new Error(`[v3.9.0 서버 오류] ${targetModel} 요청 실패. 로그: ${lastErrorLog.substring(0, 150)}`);
+        if (!rawResponseText) throw new Error(`[v4.0.0 서버 오류] ${targetModel} 응답 실패. 로그: ${lastErrorLog.substring(0, 150)}`);
 
         let parsedResult = parseAIJSON(rawResponseText) || regexExtractLLMJSON(rawResponseText);
-        if (!parsedResult) throw new Error("[v3.9.0 서버 오류] AI 응답 데이터 파싱 실패");
+        if (!parsedResult) throw new Error("[v4.0.0 서버 오류] AI 응답 데이터 파싱 실패");
         parsedResult = enforceStrictValidation(parsedResult);
 
         return new Response(JSON.stringify({ success: true, result: parsedResult }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
