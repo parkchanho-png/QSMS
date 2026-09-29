@@ -1,0 +1,6 @@
+name = "qsms"
+main = "index.js"
+compatibility_date = "2024-09-26"
+
+[ai]
+binding = "AI"
