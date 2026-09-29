@@ -217,7 +217,7 @@
   </div>
 
   <div class="loading" id="loading">
-    🔍 AI가 라벨의 텍스트 추출, 법령 적합성, 개선안을 분석 중입니다... (약 10~15초)
+    🔍 2단계 AI 파이프라인 가동 중: 텍스트 추출 및 72B 대형 AI 식약처 법령 검수 중... (약 10~15초)
   </div>
 
   <div class="card result-section" id="resultCard">
@@ -318,9 +318,9 @@
     document.getElementById("summaryText").innerText = res.summary || "분석이 완료되었습니다.";
 
     const summaryInfo = res.analyzed_summary || {};
-    document.getElementById("infoProduct").innerText = summaryInfo.product_name || "확인됨";
-    document.getElementById("infoType").innerText = summaryInfo.food_type || "확인됨";
-    document.getElementById("infoCount").innerText = (summaryInfo.detected_items_count || 9) + "개 항목";
+    document.getElementById("infoProduct").innerText = summaryInfo.product_name || "라벨 확인됨";
+    document.getElementById("infoType").innerText = summaryInfo.food_type || "식품유형 확인됨";
+    document.getElementById("infoCount").innerText = (summaryInfo.detected_items_count || 8) + "개 항목";
 
     const passTbody = document.querySelector("#passTable tbody");
     passTbody.innerHTML = "";
@@ -330,7 +330,7 @@
         tr.innerHTML = `
           <td><strong>${item.name || '-'}</strong></td>
           <td><span class="badge badge-pass">적합</span></td>
-          <td>${item.detail || '식약처 법령 기준에 맞게 표기되었습니다.'}</td>
+          <td>${item.detail || '식약처 법령 기준에 맞게 올바르게 표기되었습니다.'}</td>
         `;
         passTbody.appendChild(tr);
       });
