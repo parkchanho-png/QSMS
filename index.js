@@ -1,3 +1,4 @@
+// ArrayBuffer -> Base64 변환
 function arrayBufferToBase64(buffer) {
   let binary = '';
   const bytes = new Uint8Array(buffer);
@@ -8,6 +9,7 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
+// 📌 백엔드 강제 정밀 검증
 function enforceStrictValidation(data) {
   if (!data || !data.cross_check) return data;
   data.cross_check.forEach(item => {
@@ -23,7 +25,7 @@ function enforceStrictValidation(data) {
       const cleanLabel = labelVal.replace(/\s+/g, ""); const cleanDoc = docVal.replace(/\s+/g, "");
       if (cleanLabel !== cleanDoc) {
         item.status = "mismatch";
-        item.note = cleanDoc.length > cleanLabel.length ? "사업자등록증 상세주소가 라벨 표기에서 누락됨" : "라벨 표기 주소와 사업자등록증 주소 불일치";
+        item.note = cleanDoc.length > cleanLabel.length ? "상세주소 누락" : "주소 불일치";
       } else {
         item.status = "match"; item.note = "일치함";
       }
@@ -32,6 +34,7 @@ function enforceStrictValidation(data) {
   return data;
 }
 
+// 📌 정규식 파서
 function regexExtractLLMJSON(raw) {
   if (!raw || typeof raw !== "string") return null;
 
@@ -97,7 +100,7 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
     if (request.method === "GET") {
-      return new Response("🎉 LabelGuard AI v3.2.0 API 시크릿 보호 및 다중 모델 엔진 가동 중!", {
+      return new Response("🎉 LabelGuard AI v3.3.0 구글 API 표준 연동 완료!", {
         headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
       });
     }
@@ -106,7 +109,7 @@ export default {
       try {
         const geminiApiKey = env.GEMINI_API_KEY;
         if (!geminiApiKey) {
-          throw new Error("서버 환경 변수(GEMINI_API_KEY)가 설정되지 않았습니다. Cloudflare 대시보드를 확인하세요.");
+          throw new Error("서버 환경 변수(GEMINI_API_KEY)가 설정되지 않았습니다.");
         }
 
         const formData = await request.formData();
@@ -120,16 +123,19 @@ export default {
           );
         }
 
+        // 📌 구글 REST API 표준 형식 (inlineData, mimeType) 적용
         const labelBuffer = await labelFile.arrayBuffer();
         const labelBase64 = arrayBufferToBase64(labelBuffer);
-        const contentsParts = [{ inline_data: { mime_type: labelFile.type || "image/jpeg", data: labelBase64 } }];
+        const contentsParts = [
+          { inlineData: { mimeType: labelFile.type || "image/jpeg", data: labelBase64 } }
+        ];
 
         if (docFile && typeof docFile === "object" && docFile.arrayBuffer) {
           try {
             const docBuffer = await docFile.arrayBuffer();
             if (docBuffer && docBuffer.byteLength > 0) {
               const docBase64 = arrayBufferToBase64(docBuffer);
-              contentsParts.push({ inline_data: { mime_type: docFile.type || "image/jpeg", data: docBase64 } });
+              contentsParts.push({ inlineData: { mimeType: docFile.type || "image/jpeg", data: docBase64 } });
             }
           } catch (e) {}
         }
@@ -154,20 +160,26 @@ export default {
 }`;
         contentsParts.unshift({ text: promptText });
 
-        const modelsToTry = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-1.5-pro-latest", "gemini-pro-vision"];
+        // 📌 단종 모델 삭제 및 최신 1.5 모델만 사용
+        const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro"];
         let jsonString = "";
         let lastError = "";
 
         for (const modelName of modelsToTry) {
           const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
-          const requestBody = { contents: [{ parts: contentsParts }] };
-          if (modelName.includes("1.5")) {
-            requestBody.generationConfig = { response_mime_type: "application/json", temperature: 0.1 };
-          } else {
-            requestBody.generationConfig = { temperature: 0.1 };
-          }
+          
+          // JSON 포맷 강제 (responseMimeType)
+          const requestBody = {
+            contents: [{ parts: contentsParts }],
+            generationConfig: { responseMimeType: "application/json", temperature: 0.1 }
+          };
 
-          const geminiRes = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
+          const geminiRes = await fetch(endpoint, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody)
+          });
+
           if (geminiRes.ok) {
             const data = await geminiRes.json();
             jsonString = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -177,17 +189,30 @@ export default {
           }
         }
 
-        if (!jsonString) throw new Error(`제미나이 API 연동 실패: ${lastError}`);
+        if (!jsonString) {
+          throw new Error(`제미나이 API 판독 실패: ${lastError}`);
+        }
 
         let parsedResult = null;
-        try { parsedResult = JSON.parse(jsonString); } catch (e) { parsedResult = regexExtractLLMJSON(jsonString); }
+        try { 
+          parsedResult = JSON.parse(jsonString); 
+        } catch (e) { 
+          parsedResult = regexExtractLLMJSON(jsonString); 
+        }
+        
         if (!parsedResult) throw new Error("결과 해석 실패");
         parsedResult = enforceStrictValidation(parsedResult);
 
-        return new Response(JSON.stringify({ success: true, result: parsedResult }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(
+          JSON.stringify({ success: true, result: parsedResult }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
 
       } catch (err) {
-        return new Response(JSON.stringify({ success: false, error: err.message || String(err) }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(
+          JSON.stringify({ success: false, error: err.message || String(err) }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
     }
   }
