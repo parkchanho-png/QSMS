@@ -15,11 +15,9 @@ async function fetchLatestLawInfo(lawApiKey) {
   try {
     const lawUrl = `https://www.law.go.kr/DRF/lawSearch.do?OC=${lawApiKey}&target=admrul&query=${encodeURIComponent("식품등의 표시기준")}&type=XML`;
     const res = await fetch(lawUrl);
-    if (!res.ok) return "최신 법령 조회 실패 (기본 고시 적용)";
+    if (!res.ok) return "최신 법령 조회 지연 (기본 고시 기준 적용)";
     
     const xmlText = await res.text();
-    
-    // XML 내 행정규칙명, 시행일자, 발령번호 추출
     const titleMatch = xmlText.match(/<행정규칙명>(.*?)<\/행정규칙명>/);
     const dateMatch = xmlText.match(/<시행일자>(.*?)<\/시행일자>/);
     const numMatch = xmlText.match(/<발령번호>(.*?)<\/발령번호>/);
@@ -108,20 +106,18 @@ export default {
     // 🔍 진단 모드 (GET)
     if (request.method === "GET") {
       if (!geminiApiKey) return new Response(JSON.stringify({ status: "ERROR", message: "GEMINI_API_KEY 없음" }), { headers: corsHeaders });
-      const lawStatus = lawApiKey ? "국가법령 API 키 연동 완료" : "⚠️ LAW_API_KEY 미등록 (기본 법령 모드로 작동)";
-      return new Response(JSON.stringify({ system: "LabelGuard AI v4.0.0 (실시간 국가법령 동기화 모드)", law_integration: lawStatus }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
+      return new Response(JSON.stringify({ system: "LabelGuard AI v4.1.0 (503 점진적 재시도 강화 및 실시간 법령 연동)" }), { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
     }
 
     if (request.method === "POST") {
       try {
-        if (!geminiApiKey) throw new Error("[v4.0.0 오류] 서버 환경 변수(GEMINI_API_KEY)가 없습니다.");
+        if (!geminiApiKey) throw new Error("[v4.1.0 오류] 서버 환경 변수(GEMINI_API_KEY)가 없습니다.");
 
         const formData = await request.formData();
         const labelFile = formData.get("image");
         const docFile = formData.get("doc");
         if (!labelFile) throw new Error("라벨 이미지가 전송되지 않았습니다.");
 
-        // 1. 국가법령 Open API에서 실시간 고시 정보 수집
         const lawContext = await fetchLatestLawInfo(lawApiKey);
 
         const labelBuffer = await labelFile.arrayBuffer();
@@ -130,7 +126,6 @@ export default {
           try { const docBuffer = await docFile.arrayBuffer(); if (docBuffer.byteLength > 0) contentsParts.push({ inlineData: { mimeType: docFile.type || "image/jpeg", data: arrayBufferToBase64(docBuffer) } }); } catch (e) {}
         }
 
-        // 2. 엄격한 원자 단위 및 10대 공통 필수항목 정밀 지침 프롬프트
         const promptText = `당신은 대한민국 식약처(MFDS) 표시사항 법령 단속 최고 권위관입니다.
 다음은 국가법령정보센터에서 실시간 수집된 최신 법령 고시 기준입니다:
 ${lawContext}
@@ -168,10 +163,11 @@ ${lawContext}
 
         let rawResponseText = "";
         let lastErrorLog = "";
-        const maxRetries = 3;
+        
+        // 503 순간 과부하를 기다려주는 대기 시간을 늘려 재시도 (2초, 3.5초, 5초)
+        const retryDelays = [2000, 3500, 5000];
 
-        // 3.6 Flash 모델 호출 및 503 과부하 시 자동 재시도
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
           const geminiRes = await fetch(endpoint, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -184,18 +180,18 @@ ${lawContext}
             if (rawResponseText) break;
           } else {
             lastErrorLog = await geminiRes.text();
-            if ((geminiRes.status === 503 || geminiRes.status === 429) && attempt < maxRetries) {
-              await delay(1500);
+            if ((geminiRes.status === 503 || geminiRes.status === 429) && attempt < retryDelays.length) {
+              await delay(retryDelays[attempt]);
             } else {
               break;
             }
           }
         }
 
-        if (!rawResponseText) throw new Error(`[v4.0.0 서버 오류] ${targetModel} 응답 실패. 로그: ${lastErrorLog.substring(0, 150)}`);
+        if (!rawResponseText) throw new Error(`[v4.1.0 서버 오류] ${targetModel} 서버 일시 과부하(503). 몇 초 뒤 다시 버튼을 눌러주세요. 상세: ${lastErrorLog.substring(0, 100)}`);
 
         let parsedResult = parseAIJSON(rawResponseText) || regexExtractLLMJSON(rawResponseText);
-        if (!parsedResult) throw new Error("[v4.0.0 서버 오류] AI 응답 데이터 파싱 실패");
+        if (!parsedResult) throw new Error("[v4.1.0 서버 오류] AI 응답 데이터 파싱 실패");
         parsedResult = enforceStrictValidation(parsedResult);
 
         return new Response(JSON.stringify({ success: true, result: parsedResult }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
