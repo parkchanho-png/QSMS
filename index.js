@@ -1,4 +1,4 @@
-// ArrayBuffer -> Base64 변환
+// ArrayBuffer -> Base64 변환 도우미
 function arrayBufferToBase64(buffer) {
   let binary = '';
   const bytes = new Uint8Array(buffer);
@@ -9,7 +9,7 @@ function arrayBufferToBase64(buffer) {
   return btoa(binary);
 }
 
-// 📌 백엔드 강제 정밀 검증
+// 백엔드 강제 정밀 검증
 function enforceStrictValidation(data) {
   if (!data || !data.cross_check) return data;
   data.cross_check.forEach(item => {
@@ -34,7 +34,7 @@ function enforceStrictValidation(data) {
   return data;
 }
 
-// 📌 정규식 역파서 (혹시 모를 JSON 에러 대비)
+// 정규식 역파서
 function regexExtractLLMJSON(raw) {
   if (!raw || typeof raw !== "string") return null;
 
@@ -117,7 +117,6 @@ export default {
           );
         }
 
-        // 📌 구글 REST API 표준 형식 (inlineData, mimeType) 적용
         const labelBuffer = await labelFile.arrayBuffer();
         const labelBase64 = arrayBufferToBase64(labelBuffer);
         const contentsParts = [
@@ -154,8 +153,13 @@ export default {
 }`;
         contentsParts.unshift({ text: promptText });
 
-        // 📌 단종 모델 완전 삭제 및 최신 1.5 모델만 배열에 남김
-        const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro"];
+        // 📌 Gemini 3.6 Flash 최우선 지정
+        const modelsToTry = [
+          "gemini-3.6-flash",
+          "gemini-2.5-flash",
+          "gemini-1.5-flash"
+        ];
+
         let jsonString = "";
         let lastError = "";
 
