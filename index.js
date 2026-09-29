@@ -78,12 +78,12 @@ export default {
     // 🔍 진단 모드 (GET)
     if (request.method === "GET") {
       if (!geminiApiKey) return new Response(JSON.stringify({ status: "ERROR", message: "API 키 없음" }), { headers: corsHeaders });
-      return new Response(JSON.stringify({ system: "LabelGuard AI v3.7.0 (1.5 삭제, 3.6 단독 직진!)", note: "Cloudflare 코드 덮어쓰기 성공!" }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
+      return new Response(JSON.stringify({ system: "LabelGuard AI v3.8.0 (1.5 완전 배제, 3.6 -> 2.5 -> Gemma 다중 폴백 적용)", note: "Cloudflare 코드 덮어쓰기 성공!" }, null, 2), { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
     }
 
     if (request.method === "POST") {
       try {
-        if (!geminiApiKey) throw new Error("[v3.7.0 오류] 서버 환경 변수(GEMINI_API_KEY)가 없습니다.");
+        if (!geminiApiKey) throw new Error("[v3.8.0 오류] 서버 환경 변수(GEMINI_API_KEY)가 없습니다.");
 
         const formData = await request.formData();
         const labelFile = formData.get("image");
@@ -108,32 +108,43 @@ export default {
 }`;
         contentsParts.unshift({ text: promptText });
 
-        // 📌 1.5는 모두 삭제하고 오직 3.6 버전 하나만 찌릅니다. (문제가 생기면 3.6의 에러 원인이 직접 표출됨)
-        let candidateModels = ["gemini-3.6-flash"];
+        // 📌 1.5 모델은 싹 지우고, 대시보드에 실제로 있는 최신 모델 3대장으로만 구성!
+        let candidateModels = [
+          "gemini-3.6-flash",
+          "gemini-2.5-flash", 
+          "gemma-4-26b"
+        ];
+        
         let rawResponseText = "";
         let lastErrorLog = "";
+        let successfulModel = "";
 
         for (const modelName of candidateModels) {
           const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
           const requestBody = { contents: [{ parts: contentsParts }], generationConfig: { responseMimeType: "application/json", temperature: 0.1 } };
           const geminiRes = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
+          
           if (geminiRes.ok) {
             const data = await geminiRes.json();
             rawResponseText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-            if (rawResponseText) break;
+            if (rawResponseText) {
+              successfulModel = modelName;
+              break; // 성공하면 즉시 루프 탈출
+            }
           } else {
-            lastErrorLog = await geminiRes.text();
+            const errTxt = await geminiRes.text();
+            lastErrorLog += `[${modelName} 실패]: ${errTxt.substring(0, 100)}... | `;
           }
         }
 
-        // 🚨 3.6 모델이 에러를 뱉을 경우, 가감 없이 3.6의 에러 원인을 그대로 보여줍니다.
-        if (!rawResponseText) throw new Error(`[v3.7.0 서버 오류] 구글 3.6 API가 거절했습니다. 로그: ${lastErrorLog.substring(0, 150)}`);
+        // 🚨 모든 최신 모델이 다 거절했을 경우 에러 내뱉기
+        if (!rawResponseText) throw new Error(`[v3.8.0 서버 오류] 모든 모델 응답 실패. 로그: ${lastErrorLog}`);
 
         let parsedResult = parseAIJSON(rawResponseText) || regexExtractLLMJSON(rawResponseText);
-        if (!parsedResult) throw new Error("[v3.7.0 서버 오류] AI 응답 데이터 파싱 실패");
+        if (!parsedResult) throw new Error(`[v3.8.0 서버 오류] ${successfulModel} 모델의 응답 데이터 파싱 실패`);
         parsedResult = enforceStrictValidation(parsedResult);
 
-        return new Response(JSON.stringify({ success: true, result: parsedResult }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
+        return new Response(JSON.stringify({ success: true, result: parsedResult, used_model: successfulModel }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
 
       } catch (err) {
         return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
