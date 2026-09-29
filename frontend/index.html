@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>한글표시사항 & 법령 AI 검수 서비스</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col font-sans">
+
+  <!-- Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="bg-blue-600 text-white p-2 rounded-lg">
+          <i data-lucide="shield-check" class="w-6 h-6"></i>
+        </div>
+        <span class="font-bold text-xl text-slate-900 tracking-tight">LabelGuard AI</span>
+      </div>
+      <div class="flex items-center space-x-4">
+        <span class="text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full font-medium border border-blue-200">
+          실시간 국가법령 연동중
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    
+    <!-- Hero Section -->
+    <div class="text-center max-w-3xl mx-auto mb-10">
+      <h1 class="text-3xl sm:text-4xl font-extrabold text-slate-900 tracking-tight mb-3">
+        한글표시사항 & 이미지 법령 위반 AI 검수
+      </h1>
+      <p class="text-slate-600 text-base sm:text-lg">
+        제품 라벨 사진을 업로드하면 Vision AI가 텍스트와 이미지를 분석하여 최신 관계법령 위반 여부를 실시간으로 피드백해 드립니다.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      
+      <!-- Left Column: Upload Section -->
+      <div class="lg:col-span-5 space-y-6">
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+          <h2 class="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+            <i data-lucide="upload" class="w-5 h-5 text-blue-600"></i>
+            라벨 이미지 업로드
+          </h2>
+          
+          <!-- Dropzone -->
+          <div id="dropzone" class="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-blue-500 hover:bg-blue-50/50 transition duration-200 cursor-pointer flex flex-col items-center justify-center min-h-[260px] relative">
+            <input type="file" id="fileInput" accept="image/*" class="hidden">
+            
+            <div id="uploadPrompt" class="space-y-3">
+              <div class="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto">
+                <i data-lucide="image-plus" class="w-6 h-6"></i>
+              </div>
+              <p class="text-sm font-semibold text-slate-700">클릭하거나 이미지를 드래그하세요</p>
+              <p class="text-xs text-slate-400">PNG, JPG, WEBP (최대 10MB)</p>
+            </div>
+
+            <!-- Preview Image -->
+            <div id="previewContainer" class="hidden absolute inset-0 p-2 bg-white rounded-xl flex items-center justify-center">
+              <img id="imagePreview" class="max-h-full max-w-full object-contain rounded-lg" alt="Label Preview">
+              <button id="removeImgBtn" class="absolute top-4 right-4 bg-slate-900/70 text-white p-1.5 rounded-full hover:bg-slate-900 transition">
+                <i data-lucide="x" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Analyze Button -->
+          <button id="analyzeBtn" disabled class="w-full mt-5 bg-blue-600 text-white py-3 px-4 rounded-xl font-semibold shadow-sm hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed transition flex items-center justify-center gap-2">
+            <i data-lucide="sparkles" class="w-5 h-5"></i>
+            <span>법령 위반 실시간 분석하기</span>
+          </button>
+        </div>
+
+        <!-- Guide Box -->
+        <div class="bg-slate-100 p-5 rounded-2xl border border-slate-200 text-xs text-slate-600 space-y-2">
+          <p class="font-bold text-slate-700 flex items-center gap-1">
+            <i data-lucide="info" class="w-4 h-4 text-blue-600"></i> 검수 가능 항목
+          </p>
+          <ul class="list-disc pl-5 space-y-1">
+            <li>화장품법 / 식품위생법 필수 표시사항 누락 여부</li>
+            <li>의약품 오인 문구 (예: 완치, 치료, 특효 등)</li>
+            <li>부당한 표시·광고 및 과대광고 실시간 검증</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- Right Column: Results Section -->
+      <div class="lg:col-span-7">
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 min-h-[480px] flex flex-col">
+          <h2 class="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+            <i data-lucide="file-search" class="w-5 h-5 text-blue-600"></i>
+            AI 및 실시간 법령 분석 결과
+          </h2>
+
+          <!-- Initial Empty State -->
+          <div id="emptyState" class="flex-1 flex flex-col items-center justify-center text-center p-8 text-slate-400">
+            <i data-lucide="file-text" class="w-16 h-16 stroke-1 mb-3"></i>
+            <p class="text-sm font-medium">좌측에서 라벨 이미지를 업로드하고 분석을 시작하세요.</p>
+          </div>
+
+          <!-- Loading State -->
+          <div id="loadingState" class="hidden flex-1 flex flex-col items-center justify-center text-center p-8 space-y-4">
+            <div class="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            <div class="space-y-1">
+              <p class="text-sm font-bold text-slate-800">Vision AI가 이미지를 분석 중입니다...</p>
+              <p class="text-xs text-slate-500">국가법령정보센터 API 데이터 비교 조회 중</p>
+            </div>
+          </div>
+
+          <!-- Result Dashboard (Hidden by default) -->
+          <div id="resultDashboard" class="hidden space-y-6 flex-1">
+            
+            <!-- Summary Banner -->
+            <div id="statusBanner" class="p-4 rounded-xl border flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <div id="statusIcon" class="p-2 rounded-lg text-white"></div>
+                <div>
+                  <h3 id="statusTitle" class="font-bold text-base"></h3>
+                  <p id="statusDesc" class="text-xs"></p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Missing Required Fields -->
+            <div class="border border-slate-200 rounded-xl p-4 bg-slate-50/50">
+              <h4 class="text-sm font-bold text-slate-800 mb-2 flex items-center gap-2">
+                <i data-lucide="check-square" class="w-4 h-4 text-slate-600"></i>
+                필수 한글표시사항 항목 점검
+              </h4>
+              <div id="fieldsContainer" class="flex flex-wrap gap-2 pt-1"></div>
+            </div>
+
+            <!-- Violations Details -->
+            <div class="space-y-3">
+              <h4 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-500"></i>
+                위반/주의 검출 문구 및 연동 법령
+              </h4>
+              <div id="violationsList" class="space-y-3"></div>
+            </div>
+
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    // Initialize Lucide Icons
+    lucide.createIcons();
+
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const uploadPrompt = document.getElementById('uploadPrompt');
+    const previewContainer = document.getElementById('previewContainer');
+    const imagePreview = document.getElementById('imagePreview');
+    const removeImgBtn = document.getElementById('removeImgBtn');
+    const analyzeBtn = document.getElementById('analyzeBtn');
+
+    const emptyState = document.getElementById('emptyState');
+    const loadingState = document.getElementById('loadingState');
+    const resultDashboard = document.getElementById('resultDashboard');
+
+    let selectedFile = null;
+
+    // File Drag & Drop
+    dropzone.addEventListener('click', () => fileInput.click());
+    dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('border-blue-500', 'bg-blue-50/50'); });
+    dropzone.addEventListener('dragleave', () => { dropzone.classList.remove('border-blue-500', 'bg-blue-50/50'); });
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('border-blue-500', 'bg-blue-50/50');
+      if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length) handleFile(e.target.files[0]);
+    });
+
+    function handleFile(file) {
+      if (!file.type.startsWith('image/')) {
+        alert('이미지 파일만 업로드할 수 있습니다.');
+        return;
+      }
+      selectedFile = file;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        imagePreview.src = e.target.result;
+        previewContainer.classList.remove('hidden');
+        uploadPrompt.classList.add('hidden');
+        analyzeBtn.disabled = false;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    removeImgBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectedFile = null;
+      fileInput.value = '';
+      imagePreview.src = '';
+      previewContainer.classList.add('hidden');
+      uploadPrompt.classList.remove('hidden');
+      analyzeBtn.disabled = true;
+      resetResults();
+    });
+
+    function resetResults() {
+      emptyState.classList.remove('hidden');
+      loadingState.classList.add('hidden');
+      resultDashboard.classList.add('hidden');
+    }
+
+    // Analyze Event (Cloudflare Worker API 연동 전 프론트 시뮬레이션 코드)
+    analyzeBtn.addEventListener('click', async () => {
+      if (!selectedFile) return;
+
+      emptyState.classList.add('hidden');
+      resultDashboard.classList.add('hidden');
+      loadingState.classList.remove('hidden');
+      analyzeBtn.disabled = true;
+
+      // 백엔드 Cloudflare Worker API 호출 (추후 backend 주소로 대체)
+      setTimeout(() => {
+        renderMockResults();
+        loadingState.classList.add('hidden');
+        resultDashboard.classList.remove('hidden');
+        analyzeBtn.disabled = false;
+      }, 2000);
+    });
+
+    function renderMockResults() {
+      const mockData = {
+        is_compliant: false,
+        required_fields: [
+          { name: '제품명', status: 'pass' },
+          { name: '내용량', status: 'pass' },
+          { name: '전성분', status: 'pass' },
+          { name: '영업자의 상호 및 주소', status: 'fail' },
+          { name: '사용기한', status: 'pass' }
+        ],
+        violations: [
+          {
+            word: '여드름 100% 완치 및 여드름 자국 즉각 개선',
+            issue: '의약품 오인 문구 및 단정적 표현 사용',
+            law: '화장품법 제13조(부당한 표시·광고 행위 등의 금지)',
+            guide: "'완치', '즉각 개선' 등 의약품 효능으로 오인 가능한 표현은 수정이 필요합니다."
+          }
+        ]
+      };
+
+      // Status Banner
+      const banner = document.getElementById('statusBanner');
+      const statusIcon = document.getElementById('statusIcon');
+      const statusTitle = document.getElementById('statusTitle');
+      const statusDesc = document.getElementById('statusDesc');
+
+      if (mockData.is_compliant) {
+        banner.className = 'p-4 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-900 flex items-center justify-between';
+        statusIcon.className = 'p-2 rounded-lg bg-emerald-600 text-white';
+        statusIcon.innerHTML = `<i data-lucide="check-circle" class="w-6 h-6"></i>`;
+        statusTitle.textContent = '법령 위반 사항 없음';
+        statusDesc.textContent = '필수 한글표시사항 및 표기 기준을 준수하고 있습니다.';
+      } else {
+        banner.className = 'p-4 rounded-xl border border-red-200 bg-red-50 text-red-900 flex items-center justify-between';
+        statusIcon.className = 'p-2 rounded-lg bg-red-600 text-white';
+        statusIcon.innerHTML = `<i data-lucide="alert-octagon" class="w-6 h-6"></i>`;
+        statusTitle.textContent = '법령 위반 의심 항목 발견';
+        statusDesc.textContent = '필수 항목 누락 또는 과대광고 문구가 검출되었습니다.';
+      }
+
+      // Fields
+      const fieldsContainer = document.getElementById('fieldsContainer');
+      fieldsContainer.innerHTML = mockData.required_fields.map(f => `
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+          f.status === 'pass' 
+            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' 
+            : 'bg-red-100 text-red-800 border border-red-200'
+        }">
+          <i data-lucide="${f.status === 'pass' ? 'check' : 'x'}" class="w-3.5 h-3.5"></i>
+          ${f.name}
+        </span>
+      `).join('');
+
+      // Violations
+      const violationsList = document.getElementById('violationsList');
+      violationsList.innerHTML = mockData.violations.map(v => `
+        <div class="p-4 rounded-xl border border-amber-200 bg-amber-50/60 space-y-2 text-xs">
+          <div class="flex items-start justify-between gap-2">
+            <span class="font-bold text-amber-900 text-sm">"${v.word}"</span>
+            <span class="bg-amber-200 text-amber-900 px-2 py-0.5 rounded font-medium text-[11px] shrink-0">위반 위험</span>
+          </div>
+          <p class="text-amber-800"><strong>사유:</strong> ${v.issue}</p>
+          <div class="bg-white/80 p-2.5 rounded-lg border border-amber-200/80 space-y-1">
+            <p class="font-semibold text-slate-800 flex items-center gap-1">
+              <i data-lucide="scale" class="w-3.5 h-3.5 text-blue-600"></i> 관련 법령: ${v.law}
+            </p>
+            <p class="text-slate-600">${v.guide}</p>
+          </div>
+        </div>
+      `).join('');
+
+      lucide.createIcons();
+    }
+  </script>
+</body>
+</html>
