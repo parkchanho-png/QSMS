@@ -18,7 +18,7 @@
     }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
       background-color: var(--bg);
       color: var(--text);
       margin: 0;
@@ -115,7 +115,6 @@
 
     .badge-pass { background: #dcfce7; color: #166534; }
     .badge-fail { background: #fee2e2; color: #991b1b; }
-    .badge-warn { background: #fef3c7; color: #92400e; }
 
     table {
       width: 100%;
@@ -232,7 +231,21 @@
   }
 
   function renderResult(resultData) {
-    let res = typeof resultData === "string" ? JSON.parse(resultData) : resultData;
+    let res;
+    try {
+      if (typeof resultData === "string") {
+        let cleanStr = resultData.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+        const jsonMatch = cleanStr.match(/\{[\s\S]*\}/);
+        if (jsonMatch) cleanStr = jsonMatch[0];
+        res = JSON.parse(cleanStr);
+      } else {
+        res = resultData;
+      }
+    } catch (e) {
+      alert("AI 분석 결과 변환 중 오류가 발생했습니다. 다시 시도해 주세요.");
+      return;
+    }
+
     document.getElementById("resultCard").style.display = "block";
     document.getElementById("summaryText").innerText = res.summary || "분석이 완료되었습니다.";
 
@@ -242,11 +255,12 @@
     if (res.cross_check && res.cross_check.length > 0) {
       res.cross_check.forEach(item => {
         const tr = document.createElement("tr");
-        const statusBadge = item.status === "match" 
+        const isMatch = item.status === "match" || item.status === "pass";
+        const statusBadge = isMatch 
           ? '<span class="badge badge-pass">일치</span>' 
           : '<span class="badge badge-fail">불일치</span>';
         tr.innerHTML = `
-          <td>${item.item}</td>
+          <td>${item.item || '-'}</td>
           <td>${statusBadge}</td>
           <td>${item.label_value || '-'}</td>
           <td>${item.doc_value || '-'}</td>
@@ -265,10 +279,10 @@
       res.violations.forEach(v => {
         const tr = document.createElement("tr");
         tr.innerHTML = `
-          <td style="color:red; font-weight:bold;">${v.word}</td>
-          <td>${v.issue}</td>
-          <td>${v.law}</td>
-          <td style="color:blue;">${v.guide}</td>
+          <td style="color:red; font-weight:bold;">${v.word || '-'}</td>
+          <td>${v.issue || '-'}</td>
+          <td>${v.law || '-'}</td>
+          <td style="color:blue;">${v.guide || '-'}</td>
         `;
         violTbody.appendChild(tr);
       });
