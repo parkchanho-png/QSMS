@@ -1,3 +1,4 @@
+// 1. JSON 자동 파서
 function parseAIJSON(raw) {
   if (!raw) return null;
   let str = typeof raw === "string" ? raw : JSON.stringify(raw);
@@ -56,15 +57,16 @@ function parseAIJSON(raw) {
   try { return JSON.parse(repStr); } catch (e) { return null; }
 }
 
+// 2. 마크다운 방어 정규식 추출기 (의무/선택 항목 엄격 분리)
 function regexExtractLLMJSON(raw) {
   if (!raw || typeof raw !== "string") return null;
 
-  let summary = "식약처 법령 정밀 검수가 완료되었습니다.";
+  let summary = "식약처 법령 검수 완료";
   const sumMatch = raw.match(/"summary"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
   if (sumMatch && sumMatch[1]) summary = sumMatch[1];
 
   let productName = "추출 대기중";
-  let foodType = "즉석조리식품"; // 기본값 보정
+  let foodType = "즉석조리식품"; 
 
   const prodMatch = raw.match(/"product_name"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
   if (prodMatch && prodMatch[1]) productName = prodMatch[1];
@@ -72,28 +74,31 @@ function regexExtractLLMJSON(raw) {
   const typeMatch = raw.match(/"food_type"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
   if (typeMatch && typeMatch[1]) foodType = typeMatch[1];
 
-  if (productName.includes("알크레")) productName = productName.replace("알크레", "얼큰");
+  if (productName.includes("일르") || productName.includes("알크레")) productName = productName.replace(/일르|알크레/, "얼큰");
 
+  // 법정 필수 표기항목 (passed_items) 추출
   let passedItems = [];
-  const passedRegex = /\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"detail"\s*:\s*"([^"]+)"\s*\}/gi;
-  let pMatch;
-  while ((pMatch = passedRegex.exec(raw)) !== null) {
-    if (!pMatch[0].includes("item_name") && !pMatch[0].includes("status")) {
-      passedItems.push({ name: pMatch[1], detail: pMatch[2] });
+  const passedSectionMatch = raw.match(/"passed_items"\s*:\s*\[([\s\S]*?)\]\s*,/i);
+  if (passedSectionMatch && passedSectionMatch[1]) {
+    const passedRegex = /\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"detail"\s*:\s*"([^"]+)"\s*\}/gi;
+    let pMatch;
+    while ((pMatch = passedRegex.exec(passedSectionMatch[1])) !== null) {
+      if (!pMatch[0].includes("status")) passedItems.push({ name: pMatch[1], detail: pMatch[2] });
     }
   }
 
+  // 선택 표기항목 (optional_items) 추출
   let optionalItems = [];
-  const optionalRegex = /"optional_items"\s*:\s*\[([\s\S]*?)\]/i;
-  const optSection = raw.match(optionalRegex);
-  if (optSection && optSection[1]) {
-    const optItemRegex = /\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"detail"\s*:\s*"([^"]+)"\s*\}/gi;
+  const optionalSectionMatch = raw.match(/"optional_items"\s*:\s*\[([\s\S]*?)\]\s*,/i);
+  if (optionalSectionMatch && optionalSectionMatch[1]) {
+    const optRegex = /\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"detail"\s*:\s*"([^"]+)"\s*\}/gi;
     let oMatch;
-    while ((oMatch = optItemRegex.exec(optSection[1])) !== null) {
+    while ((oMatch = optRegex.exec(optionalSectionMatch[1])) !== null) {
       optionalItems.push({ name: oMatch[1], detail: oMatch[2] });
     }
   }
 
+  // 누락/위반 항목 (failed_items) 추출
   let failedItems = [];
   const failedRegex = /\{\s*"item_name"\s*:\s*"([^"]+)"\s*,\s*"found_text"\s*:\s*"([^"]+)"\s*,\s*"issue_reason"\s*:\s*"([^"]+)"\s*,\s*"law"\s*:\s*"([^"]+)"\s*,\s*"how_to_improve"\s*:\s*"([^"]+)"\s*\}/gi;
   let fMatch;
@@ -103,6 +108,7 @@ function regexExtractLLMJSON(raw) {
     });
   }
 
+  // 증빙서류 교차 대조 (cross_check) 추출
   let crossCheck = [];
   const crossRegex = /\{\s*"item"\s*:\s*"([^"]+)"\s*,\s*"status"\s*:\s*"([^"]+)"\s*,\s*"label_value"\s*:\s*"([^"]+)"\s*,\s*"doc_value"\s*:\s*"([^"]+)"\s*,\s*"note"\s*:\s*"([^"]+)"\s*\}/gi;
   let cMatch;
@@ -117,7 +123,7 @@ function regexExtractLLMJSON(raw) {
     analyzed_summary: {
       product_name: productName,
       food_type: foodType,
-      detected_items_count: passedItems.length + failedItems.length + optionalItems.length || 8
+      detected_items_count: passedItems.length + failedItems.length + optionalItems.length || 0
     },
     passed_items: passedItems,
     optional_items: optionalItems,
@@ -126,6 +132,7 @@ function regexExtractLLMJSON(raw) {
   };
 }
 
+// 3. 증빙서류/주소 강제 검증 로직
 function enforceStrictValidation(data) {
   if (!data || !data.cross_check) return data;
   data.cross_check.forEach(item => {
@@ -141,7 +148,6 @@ function enforceStrictValidation(data) {
     if (itemName.includes("주소") || itemName.includes("소재지")) {
       const cleanLabel = labelVal.replace(/\s+/g, "");
       const cleanDoc = docVal.replace(/\s+/g, "");
-
       if (cleanLabel !== cleanDoc) {
         item.status = "mismatch";
         if (cleanDoc.length > cleanLabel.length) {
@@ -171,7 +177,7 @@ export default {
     const textModel = "@cf/meta/llama-3.1-70b-instruct";
 
     if (request.method === "GET") {
-      return new Response("🎉 LabelGuard AI v2.2.0 식약처 필수/선택 자동 분류 엔진 가동 중!", {
+      return new Response("🎉 LabelGuard AI v2.3.0 식품공전 필수항목 전수검사 엔진 가동 중!", {
         headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" }
       });
     }
@@ -191,7 +197,7 @@ export default {
         const labelBuffer = await labelFile.arrayBuffer();
         const labelBytes = Array.from(new Uint8Array(labelBuffer));
         const visionOcrRes = await env.AI.run(visionModel, {
-          prompt: "이 라벨 사진의 모든 한글 텍스트를 정확히 읽으세요.",
+          prompt: "이 라벨 사진의 모든 한글 텍스트(제품명, 규격, 원재료명, 소비기한, 보관방법, 업소명 및 소재지, 영양성분, 주의사항 등)를 정확히 읽으세요.",
           image: labelBytes
         });
         const visionLabelText = visionOcrRes.response || "";
@@ -215,32 +221,32 @@ export default {
 [OCR 추출 텍스트] (Tesseract: ${tesseractLabelText} / Vision AI: ${visionLabelText})
 [증빙서류 텍스트] (${tesseractDocText || visionDocText || "증빙서류 미제출"})
 
-[완벽 검수 4대 지침]
-1. [식품유형 정규화]: OCR이 '주식조리식품' 등 잘못된 단어를 추출했다면, 식약처 공식 '식품공전' 기준에 맞는 올바른 유형(예: 즉석조리식품, 식육추출가공품 등)으로 교정하여 'food_type'에 기재하세요.
-2. [필수 항목 검증]: 교정된 식품유형을 바탕으로 식약처 고시상 반드시 기재해야 할 '법정 필수 표시항목' 목록(제품명, 식품유형, 소비기한, 원재료명, 내용량, 보관방법, 업소명 및 소재지 등)을 구성하고, 누락 없이 정확히 표기되었는지 대조하세요. 적합하면 'passed_items', 누락/위반은 'failed_items'에 넣으세요.
-3. [선택/추가 항목 분류]: 법정 필수 표기사항은 아니지만 라벨에 추가로 적혀있는 내용(예: 조리방법, 주의사항, 고객상담실, 소비자분쟁해결기준 등)은 반드시 'optional_items' 배열에 따로 분류하세요.
-4. [엄격 교차 대조]: 증빙서류 미제출된 판매원 등은 status를 "mismatch"로, note를 "자료확인불가"로 반환하세요.
+[완벽 검수 3대 지침 - 절대 엄수]
+1. [식품유형 정규화]: '주식조리식품' 등 잘못된 단어는 식약처 공식 용어(예: 즉석조리식품)로 자동 교정하세요. 오타(일르해장국 등)는 문맥에 맞게(얼큰해장국) 교정하세요.
+2. [법정 필수 표시항목 전수 검사]: 해당 식품유형에 반드시 들어가야 하는 아래 11개 항목이 라벨에 있는지 전수 대조하세요.
+   * 의무 체크리스트: 제품명, 식품유형, 영업소 명칭 및 소재지, 소비기한, 내용량/열량, 원재료명, 영양성분, 용기·포장 재질, 품목보고번호, 보관방법, 주의사항.
+   * 위 11개 필수 항목 중 라벨에 정상 표기된 것은 'passed_items'에, 누락되거나 위반된 것은 반드시 'failed_items'에 넣으세요.
+3. [선택/추가 항목 분리]: 위 11개 필수 항목이 아닌 기타 표기사항(소비자상담실, 조리방법, 교환 및 환불, 바코드 등)은 법적 의무가 아니므로 **무조건 'optional_items' 배열**에 넣으세요. 절대 passed_items에 섞지 마세요.
 
-[JSON 응답 규격]
+[응답 JSON 규격 - 오직 지정된 포맷으로만 답변]
 {
   "summary": "검수 결과 총평",
   "analyzed_summary": {
-    "product_name": "정확한 제품명",
-    "food_type": "식품공전 기준 공식 식품유형 (예: 즉석조리식품)",
-    "detected_items_count": 12
+    "product_name": "교정된 제품명",
+    "food_type": "식품공전 기준 공식 식품유형",
+    "detected_items_count": 0
   },
   "passed_items": [
-    { "name": "식품유형", "detail": "식품공전에 따른 '즉석조리식품' 명시 적합" },
-    { "name": "소비기한", "detail": "필수 표시항목인 소비기한 표기 적합" }
+    { "name": "법정 필수 항목명 (예: 원재료명)", "detail": "적합 사유 및 표기 내용" }
   ],
   "optional_items": [
-    { "name": "소비자상담실", "detail": "소비자 편의를 위한 고객센터 번호 추가 기재됨" }
+    { "name": "선택 추가 항목명 (예: 소비자상담실)", "detail": "추가 기재된 내용 설명" }
   ],
   "failed_items": [
-    { "item_name": "내용량 누락", "found_text": "표기 없음", "issue_reason": "필수 항목인 내용량이 누락됨", "law": "식품등의 표시기준", "how_to_improve": "내용량을 명확히 기재하세요." }
+    { "item_name": "누락/위반 필수 항목명", "found_text": "검출 문구 또는 누락", "issue_reason": "필수 표시항목 누락/위반 사유", "law": "관련 법령", "how_to_improve": "개선 가이드" }
   ],
   "cross_check": [
-    { "item": "제조원 주소", "status": "match", "label_value": "주소", "doc_value": "주소", "note": "일치" }
+    { "item": "영업소 상호 및 소재지 대조", "status": "mismatch", "label_value": "라벨", "doc_value": "증빙서류", "note": "비고" }
   ]
 }`;
 
