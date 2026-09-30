@@ -8,31 +8,7 @@ function arrayBufferToBase64(buffer) {
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// 📌 1단계: 국가법령정보센터(open.law.go.kr) 실시간 최신 법령 수집
-async function fetchLatestLawInfo(lawApiKey) {
-  if (!lawApiKey) return "국가법령 API 키가 설정되지 않아 기본 '식품등의 표시기준' 고시를 적용합니다.";
-  
-  try {
-    const lawUrl = `https://www.law.go.kr/DRF/lawSearch.do?OC=${lawApiKey}&target=admrul&query=${encodeURIComponent("식품등의 표시기준")}&type=XML`;
-    const res = await fetch(lawUrl);
-    if (!res.ok) return "최신 법령 조회 지연 (기본 고시 기준 적용)";
-    
-    const xmlText = await res.text();
-    const titleMatch = xmlText.match(/<행정규칙명>(.*?)<\/행정규칙명>/);
-    const dateMatch = xmlText.match(/<시행일자>(.*?)<\/시행일자>/);
-    const numMatch = xmlText.match(/<발령번호>(.*?)<\/발령번호>/);
-
-    const title = titleMatch ? titleMatch[1] : "식품등의 표시기준";
-    const date = dateMatch ? dateMatch[1] : "최신";
-    const num = numMatch ? numMatch[1] : "";
-
-    return `[국가법령정보센터 실시간 동기화 완료]\n- 고시명: ${title}\n- 시행일자: ${date}\n- 고시번호: 제${num}호\n본 검수는 위 식약처 최신 고시 기준을 철저히 준수합니다.`;
-  } catch (e) {
-    return "국가법령 동기화 지연 (기본 고시 기준 적용)";
-  }
-}
-
-// 📌 2단계: 마크다운 기호 정제 및 안전 JSON 파서
+// 📌 1단계: 안전 JSON 파서
 function parseAIJSON(raw) {
   if (!raw) return null;
   let str = typeof raw === "string" ? raw : JSON.stringify(raw);
@@ -40,59 +16,128 @@ function parseAIJSON(raw) {
   const start = str.indexOf('{');
   const end = str.lastIndexOf('}');
   if (start === -1 || end === -1 || end <= start) return null;
-  const jsonCandidate = str.slice(start, end + 1);
-  try { return JSON.parse(jsonCandidate); } 
-  catch (e) {
-    try {
-      const cleaned = jsonCandidate.replace(/[\u0000-\u001F]+/g, " ").replace(/,\s*([\}\]])/g, "$1");
-      return JSON.parse(cleaned);
-    } catch (e2) { return null; }
-  }
+  try { return JSON.parse(str.slice(start, end + 1)); } 
+  catch (e) { return null; }
 }
 
-// 📌 3단계: 정규식 역파서 (최후 보루)
-function regexExtractLLMJSON(raw) {
-  if (!raw || typeof raw !== "string") return null;
-  let summary = "데이터 구조 정제가 완료되었습니다.";
-  const sumMatch = raw.match(/"summary"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
-  if (sumMatch && sumMatch[1]) summary = sumMatch[1];
+// 📌 2단계: JS 백엔드 룰 엔진 (AI 오탐 방지 및 유형별 체크리스트 강제)
+function processRulesEngine(aiData) {
+  if (!aiData) return null;
 
-  let productName = "판독 완료"; let foodType = "분류 완료"; 
-  const prodMatch = raw.match(/"product_name"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
-  if (prodMatch && prodMatch[1]) productName = prodMatch[1];
-  const typeMatch = raw.match(/"food_type"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"/i);
-  if (typeMatch && typeMatch[1]) foodType = typeMatch[1];
+  const category = aiData.category || "FOOD";
+  const label = aiData.label_data || {};
+  const doc = aiData.doc_data || {};
 
-  let passedItems = []; let optionalItems = []; let failedItems = []; let crossCheck = [];
-  const passedSectionMatch = raw.match(/"passed_items"\s*:\s*\[([\s\S]*?)\]\s*,/i);
-  if (passedSectionMatch && passedSectionMatch[1]) {
-    const passedRegex = /\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"detail"\s*:\s*"([^"]+)"\s*\}/gi; let pMatch;
-    while ((pMatch = passedRegex.exec(passedSectionMatch[1])) !== null) { if (!pMatch[0].includes("status")) passedItems.push({ name: pMatch[1], detail: pMatch[2] }); }
+  let passedItems = [];
+  let failedItems = [];
+  let optionalItems = [];
+  let crossCheck = [];
+
+  // [A] 용기·포장류 (도자기, 유리, 텀블러 등) 규칙 엔진
+  if (category === "CONTAINER") {
+    const containerRules = [
+      { key: "food_safe_mark", name: "식품용 문구/마크", law: "기구 및 용기·포장 표시기준" },
+      { key: "material", name: "재질명", law: "기구 및 용기·포장 표시기준" },
+      { key: "business_name", name: "영업소 명칭(제조원/판매원)", law: "기구 및 용기·포장 표시기준" },
+      { key: "address", name: "영업소 소재지(주소)", law: "기구 및 용기·포장 표시기준" },
+      { key: "caution", name: "보관 및 취급상 주의사항", law: "기구 및 용기·포장 표시기준" }
+    ];
+
+    containerRules.forEach(rule => {
+      const val = (label[rule.key] || "").trim();
+      if (val && !val.includes("없음") && !val.includes("미표기") && !val.includes("누락")) {
+        passedItems.push({ name: rule.name, detail: val });
+      } else {
+        failedItems.push({
+          item_name: rule.name,
+          found_text: "표기 없음(누락)",
+          issue_reason: `${rule.name} 항목 누락`,
+          law: rule.law,
+          how_to_improve: `${rule.name} 정보를 라벨에 명확히 표기해야 합니다.`
+        });
+      }
+    });
+  } 
+  // [B] 일반 가공식품 규칙 엔진 (10대 필수 항목)
+  else {
+    const foodRules = [
+      { key: "product_name", name: "제품명", law: "식품등의 표시기준" },
+      { key: "food_type", name: "식품유형", law: "식품등의 표시기준" },
+      { key: "business_name", name: "영업소 명칭(제조원/판매원)", law: "식품등의 표시기준" },
+      { key: "address", name: "영업소 소재지(주소)", law: "식품등의 표시기준" },
+      { key: "expiration_date", name: "소비기한(유통기한)", law: "식품등의 표시기준" },
+      { key: "net_weight", name: "내용량 및 열량", law: "식품등의 표시기준" },
+      { key: "ingredients", name: "원재료명", law: "식품등의 표시기준" },
+      { key: "nutrition", name: "영양성분", law: "식품등의 표시기준" },
+      { key: "package_material", name: "용기·포장재질", law: "식품등의 표시기준" },
+      { key: "caution", name: "보관방법 및 주의사항", law: "식품등의 표시기준" }
+    ];
+
+    foodRules.forEach(rule => {
+      const val = (label[rule.key] || "").trim();
+      if (val && !val.includes("없음") && !val.includes("미표기") && !val.includes("누락")) {
+        passedItems.push({ name: rule.name, detail: val });
+      } else {
+        failedItems.push({
+          item_name: rule.name,
+          found_text: "표기 없음(누락)",
+          issue_reason: `${rule.name} 항목 누락`,
+          law: rule.law,
+          how_to_improve: `${rule.name} 정보를 라벨에 명확히 표기해야 합니다.`
+        });
+      }
+    });
   }
-  const optionalSectionMatch = raw.match(/"optional_items"\s*:\s*\[([\s\S]*?)\]\s*,/i);
-  if (optionalSectionMatch && optionalSectionMatch[1]) {
-    const optRegex = /\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*"detail"\s*:\s*"([^"]+)"\s*\}/gi; let oMatch;
-    while ((oMatch = optRegex.exec(optionalSectionMatch[1])) !== null) { optionalItems.push({ name: oMatch[1], detail: oMatch[2] }); }
+
+  // 선택 표기사항 분리
+  if (label.optional_info) {
+    optionalItems.push({ name: "권장 표기사항", detail: label.optional_info });
   }
-  const failedRegex = /\{\s*"item_name"\s*:\s*"([^"]+)"\s*,\s*"found_text"\s*:\s*"([^"]+)"\s*,\s*"issue_reason"\s*:\s*"([^"]+)"\s*,\s*"law"\s*:\s*"([^"]+)"\s*,\s*"how_to_improve"\s*:\s*"([^"]+)"\s*\}/gi; let fMatch;
-  while ((fMatch = failedRegex.exec(raw)) !== null) { failedItems.push({ item_name: fMatch[1], found_text: fMatch[2], issue_reason: fMatch[3], law: fMatch[4], how_to_improve: fMatch[5] }); }
-  const crossRegex = /\{\s*"item"\s*:\s*"([^"]+)"\s*,\s*"status"\s*:\s*"([^"]+)"\s*,\s*"label_value"\s*:\s*"([^"]+)"\s*,\s*"doc_value"\s*:\s*"([^"]+)"\s*,\s*"note"\s*:\s*"([^"]+)"\s*\}/gi; let cMatch;
-  while ((cMatch = crossRegex.exec(raw)) !== null) { crossCheck.push({ item: cMatch[1], status: cMatch[2], label_value: cMatch[3], doc_value: cMatch[4], note: cMatch[5] }); }
 
-  return { summary, analyzed_summary: { product_name: productName, food_type: foodType, detected_items_count: passedItems.length + failedItems.length + optionalItems.length }, passed_items: passedItems, optional_items: optionalItems, failed_items: failedItems, cross_check: crossCheck };
-}
+  // [C] 백엔드 JS 교차 대조 (Cross-Check)
+  const labelAddr = (label.address || "").replace(/\s+/g, "");
+  const docAddr = (doc.address || "").replace(/\s+/g, "");
 
-// 📌 4단계: 비즈니스 로직 강제 검증
-function enforceStrictValidation(data) {
-  if (!data || !data.cross_check) return data;
-  data.cross_check.forEach(item => {
-    const labelVal = (item.label_value || "").trim(); const docVal = (item.doc_value || "").trim(); const itemName = item.item || "";
-    if (docVal.includes("미제출") || docVal === "" || docVal.includes("없음")) { item.status = "mismatch"; item.doc_value = "증빙서류 미제출"; item.note = "자료확인불가"; return; }
-    if (itemName.includes("주소") || itemName.includes("소재지")) {
-      const cleanLabel = labelVal.replace(/\s+/g, ""); const cleanDoc = docVal.replace(/\s+/g, "");
-      if (cleanLabel !== cleanDoc) { item.status = "mismatch"; item.note = cleanDoc.length > cleanLabel.length ? "상세주소 누락" : "주소 불일치"; } else { item.status = "match"; item.note = "일치함"; }
-    }
-  }); return data;
+  if (!docAddr || docAddr.includes("없음") || docAddr.includes("미제출")) {
+    crossCheck.push({
+      item: "영업소 소재지",
+      status: "mismatch",
+      label_value: label.address || "라벨 표기값",
+      doc_value: "증빙서류 미제출",
+      note: "자료확인불가"
+    });
+  } else if (labelAddr === docAddr) {
+    crossCheck.push({
+      item: "영업소 소재지",
+      status: "match",
+      label_value: label.address,
+      doc_value: doc.address,
+      note: "일치함"
+    });
+  } else {
+    crossCheck.push({
+      item: "영업소 소재지",
+      status: "mismatch",
+      label_value: label.address,
+      doc_value: doc.address,
+      note: labelAddr.length < docAddr.length ? "상세주소 누락" : "주소 불일치"
+    });
+  }
+
+  return {
+    summary: category === "CONTAINER" 
+      ? "기구 및 용기·포장류 기준에 맞춰 5대 필수 항목 정밀 검수를 완료했습니다." 
+      : "가공식품 표시기준에 맞춰 10대 필수 항목 정밀 검수를 완료했습니다.",
+    analyzed_summary: {
+      product_name: aiData.product_name || "판독 완료",
+      food_type: aiData.food_type || "분류 완료",
+      detected_items_count: passedItems.length + failedItems.length + optionalItems.length
+    },
+    passed_items: passedItems,
+    optional_items: optionalItems,
+    failed_items: failedItems,
+    cross_check: crossCheck
+  };
 }
 
 export default {
@@ -101,24 +146,20 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
     
     const geminiApiKey = (env.GEMINI_API_KEY || "").trim();
-    const lawApiKey = (env.LAW_API_KEY || "").trim();
 
-    // 🔍 진단 모드 (GET)
     if (request.method === "GET") {
       if (!geminiApiKey) return new Response(JSON.stringify({ status: "ERROR", message: "GEMINI_API_KEY 없음" }), { headers: corsHeaders });
-      return new Response(JSON.stringify({ system: "LabelGuard AI v4.1.0 (503 점진적 재시도 강화 및 실시간 법령 연동)" }), { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
+      return new Response(JSON.stringify({ system: "LabelGuard AI v5.0.0 (경량화 AI + 백엔드 JS 룰 엔진)" }), { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
     }
 
     if (request.method === "POST") {
       try {
-        if (!geminiApiKey) throw new Error("[v4.1.0 오류] 서버 환경 변수(GEMINI_API_KEY)가 없습니다.");
+        if (!geminiApiKey) throw new Error("[v5.0.0 오류] 서버 환경 변수(GEMINI_API_KEY)가 없습니다.");
 
         const formData = await request.formData();
         const labelFile = formData.get("image");
         const docFile = formData.get("doc");
         if (!labelFile) throw new Error("라벨 이미지가 전송되지 않았습니다.");
-
-        const lawContext = await fetchLatestLawInfo(lawApiKey);
 
         const labelBuffer = await labelFile.arrayBuffer();
         const contentsParts = [{ inlineData: { mimeType: labelFile.type || "image/jpeg", data: arrayBufferToBase64(labelBuffer) } }];
@@ -126,33 +167,35 @@ export default {
           try { const docBuffer = await docFile.arrayBuffer(); if (docBuffer.byteLength > 0) contentsParts.push({ inlineData: { mimeType: docFile.type || "image/jpeg", data: arrayBufferToBase64(docBuffer) } }); } catch (e) {}
         }
 
-        const promptText = `당신은 대한민국 식약처(MFDS) 표시사항 법령 단속 최고 권위관입니다.
-다음은 국가법령정보센터에서 실시간 수집된 최신 법령 고시 기준입니다:
-${lawContext}
+        // 📌 AI 전용 경량화 프롬프트 (OCR 및 객체 추출만 담당)
+        const promptText = `이미지에서 눈에 보이는 텍스트를 추출하고 제품 대분류를 판독하여 JSON으로 응답하세요.
 
-[동적 카테고리 검수 지침]
-1. 제출된 이미지를 분석하여 제품의 법적 대분류를 먼저 판독하세요:
-   - [가공식품]: 먹는 일반 식품
-   - [기구 및 용기·포장]: 도자기제, 유리제, 텀블러, 식기, 용기 등
-
-2. [기구 및 용기·포장]으로 판독된 경우:
-   - 필수 검수 항목: ① "식품용" 문구 또는 마크, ② 재질명, ③ 영업소 명칭, ④ 영업소 소재지, ⑤ 취급상 주의사항
-   - 🚨 절대 주의: 소비기한, 원재료명, 영양성분, 내용량, 식품유형 항목은 기구·용기류에 적용되지 않으므로 절대로 검수 대상에 포함하거나 failed_items에 넣지 마세요.
-
-3. [가공식품]으로 판독된 경우:
-   - 기존 10대 법정 필수 항목(제품명, 식품유형, 영업소 명칭, 영업소 소재지, 소비기한, 내용량, 원재료명, 영양성분, 용기·포장재질, 보관방법)을 원자 단위로 1:1 대조하세요.
-
-4. 판독된 대분류의 필수 항목 중 이미지에서 확인되지 않는 항목만 'failed_items'에 넣으세요.`;
-
-[JSON 응답 규격]
+[응답 JSON 규격]
 {
-  "summary": "검수 결과 총평",
-  "analyzed_summary": { "product_name": "제품명", "food_type": "식품유형", "detected_items_count": 0 },
-  "passed_items": [ { "name": "항목명", "detail": "적합 사유" } ],
-  "optional_items": [ { "name": "항목명", "detail": "내용" } ],
-  "failed_items": [ { "item_name": "항목명", "found_text": "표기 없음(누락)", "issue_reason": "누락 사유", "law": "식품등의 표시기준", "how_to_improve": "가이드" } ],
-  "cross_check": [ { "item": "영업소 소재지", "status": "mismatch", "label_value": "라벨주소", "doc_value": "증빙주소", "note": "비고" } ]
-}`;
+  "category": "CONTAINER" 또는 "FOOD", // 도자기, 컵, 식기류, 텀블러는 CONTAINER / 먹는 식품은 FOOD
+  "product_name": "제품명",
+  "food_type": "식품유형 또는 재질명",
+  "label_data": {
+    "product_name": "라벨의 제품명",
+    "food_type": "라벨의 식품유형",
+    "food_safe_mark": "식품용 문구 표기 또는 잔/포크 마크 존재 여부",
+    "material": "재질명 (예: 도자기제, 유리제)",
+    "business_name": "영업소 명칭(제조원/판매원)",
+    "address": "영업소 소재지 주소",
+    "caution": "취급상 주의사항",
+    "expiration_date": "소비기한 또는 유통기한",
+    "net_weight": "내용량 및 열량",
+    "ingredients": "원재료명",
+    "nutrition": "영양성분",
+    "package_material": "용기포장재질",
+    "optional_info": "기타 표기사항(고객상담실 등)"
+  },
+  "doc_data": {
+    "address": "두 번째 제출된 서류 이미지의 주소 (없으면 '없음')"
+  }
+}
+* 라벨에서 해당 문구를 찾을 수 없는 필드는 "없음"으로 적으세요.`;
+
         contentsParts.unshift({ text: promptText });
 
         const targetModel = "gemini-3.6-flash";
@@ -161,9 +204,7 @@ ${lawContext}
 
         let rawResponseText = "";
         let lastErrorLog = "";
-        
-        // 503 순간 과부하를 기다려주는 대기 시간을 늘려 재시도 (2초, 3.5초, 5초)
-        const retryDelays = [2000, 3500, 5000];
+        const retryDelays = [1500, 3000, 4500];
 
         for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
           const geminiRes = await fetch(endpoint, {
@@ -186,13 +227,15 @@ ${lawContext}
           }
         }
 
-        if (!rawResponseText) throw new Error(`[v4.1.0 서버 오류] ${targetModel} 서버 일시 과부하(503). 몇 초 뒤 다시 버튼을 눌러주세요. 상세: ${lastErrorLog.substring(0, 100)}`);
+        if (!rawResponseText) throw new Error(`[v5.0.0 서버 오류] ${targetModel} 요청 실패. 잠시 후 다시 눌러주세요. 상세: ${lastErrorLog.substring(0, 100)}`);
 
-        let parsedResult = parseAIJSON(rawResponseText) || regexExtractLLMJSON(rawResponseText);
-        if (!parsedResult) throw new Error("[v4.1.0 서버 오류] AI 응답 데이터 파싱 실패");
-        parsedResult = enforceStrictValidation(parsedResult);
+        const aiExtractedData = parseAIJSON(rawResponseText);
+        if (!aiExtractedData) throw new Error("[v5.0.0 서버 오류] AI 추출 데이터 파싱 실패");
 
-        return new Response(JSON.stringify({ success: true, result: parsedResult }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
+        // 📌 백엔드 JS 룰 엔진을 통한 검수 실행
+        const finalReport = processRulesEngine(aiExtractedData);
+
+        return new Response(JSON.stringify({ success: true, result: finalReport }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
 
       } catch (err) {
         return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
