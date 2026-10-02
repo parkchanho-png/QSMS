@@ -62,31 +62,6 @@
     .single-img-wrap { position: relative; width: 100%; font-size: 0; }
     .single-img-wrap img { width: 100%; height: auto; display: block; border-radius: 6px; }
 
-    .section-focus-line {
-      position: absolute;
-      left: 0;
-      width: 100%;
-      height: 60px;
-      margin-top: -30px;
-      background: linear-gradient(90deg, rgba(220,38,38,0.35) 0%, rgba(220,38,38,0.1) 100%);
-      border-top: 2px dashed #dc2626;
-      border-bottom: 2px dashed #dc2626;
-      pointer-events: none;
-      transition: all 0.3s ease;
-      display: flex;
-      align-items: center;
-      padding-left: 10px;
-    }
-    .focus-pin-badge {
-      background: #dc2626;
-      color: white;
-      font-size: 12px;
-      font-weight: bold;
-      padding: 3px 8px;
-      border-radius: 12px;
-      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
-    }
-
     .ad-details-pane { flex: 1; }
     .risk-card {
       background: #ffffff;
@@ -117,8 +92,8 @@
 
 <div class="container">
   <div class="header">
-    <h1>LabelGuard AI (v12.1)</h1>
-    <p>국가법령정보 실시간 연동 & 위치 자동 포커스 엔진</p>
+    <h1>LabelGuard AI (v12.2)</h1>
+    <p>국가법령정보 실시간 연동 & 스마트 스크롤 뷰어</p>
   </div>
 
   <div class="card">
@@ -245,7 +220,7 @@
         }
         resolve(base64Blocks);
       };
-      img.onerror = () => resolve([]); // 에러 시 빈 배열 반환하여 백엔드에서 우회하도록 처리
+      img.onerror = () => resolve([]); 
       img.src = URL.createObjectURL(file);
     });
   }
@@ -263,7 +238,6 @@
     try {
       const formData = new FormData();
       formData.append("mode", currentMode);
-      // 🚨 에러 방지: 캔버스가 쪼개지든 안 쪼개지든 무조건 원본 파일을 첨부하여 보냄
       formData.append("image", imageInput.files[0]);
 
       if (currentMode === "AD") {
@@ -311,11 +285,9 @@
         
         <div class="ad-report-container">
           <div class="ad-image-pane" id="adImagePane">
+            <!-- 🚨 빨간색 포커스 띠와 배지가 완전히 제거된 클린 이미지 뷰어 -->
             <div class="single-img-wrap" id="singleImgWrap">
               <img src="${uploadedImageSrc}" id="targetAdImage" alt="광고 원본">
-              <div class="section-focus-line" id="focusLine" style="display:none; top:0%;">
-                <span class="focus-pin-badge" id="focusBadge">#1 위치 포커스</span>
-              </div>
             </div>
           </div>
 
@@ -351,29 +323,24 @@
     }
   }
 
+  // 🎯 카드를 클릭할 때 이미지 위치로 스크롤만 부드럽게 시켜주는 함수 (띠 없음)
   function focusImageSection(index, yPercent) {
     const pane = document.getElementById('adImagePane');
     const img = document.getElementById('targetAdImage');
-    const focusLine = document.getElementById('focusLine');
-    const focusBadge = document.getElementById('focusBadge');
 
     if (!img || !pane) return;
 
+    // 현재 클릭된 카드만 테두리 하이라이트(파란색) 처리
     document.querySelectorAll('.risk-card').forEach(c => c.classList.remove('active-focus'));
     const activeCard = document.getElementById(`riskCard_${index}`);
     if (activeCard) activeCard.classList.add('active-focus');
 
+    // 이미지가 해당 비율(yPercent)만큼 스크롤되도록 중앙 계산
     const imgHeight = img.clientHeight;
     const targetScrollY = (imgHeight * (yPercent / 100)) - (pane.clientHeight / 2);
 
+    // 스크롤 이동
     pane.scrollTo({ top: Math.max(0, targetScrollY), behavior: 'smooth' });
-
-    focusLine.style.display = 'flex';
-    focusLine.style.top = `${yPercent}%`;
-    focusBadge.innerText = `#${index + 1} 위치 영역`;
-    
-    focusLine.style.opacity = '1';
-    setTimeout(() => { focusLine.style.opacity = '0.85'; }, 300);
   }
 
   function renderLabelReport(result) {
