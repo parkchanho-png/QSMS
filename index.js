@@ -16,8 +16,14 @@ function parseAIJSON(raw) {
   const start = str.indexOf('{');
   const end = str.lastIndexOf('}');
   if (start === -1 || end === -1 || end <= start) return null;
-  try { return JSON.parse(str.slice(start, end + 1)); } 
-  catch (e) { return null; }
+  const jsonCandidate = str.slice(start, end + 1);
+  try { return JSON.parse(jsonCandidate); } 
+  catch (e) {
+    try {
+      const cleaned = jsonCandidate.replace(/[\u0000-\u001F]+/g, " ").replace(/,\s*([\}\]])/g, "$1");
+      return JSON.parse(cleaned);
+    } catch (e2) { return null; }
+  }
 }
 
 // 📌 2단계: 한글표시사항 백엔드 규칙 엔진
@@ -33,6 +39,7 @@ function processLabelRulesEngine(aiData) {
   let optionalItems = [];
   let crossCheck = [];
 
+  // [A] 기구 및 용기·포장류 (도자기, 유리, 텀블러 등) 5대 필수 규칙
   if (category === "CONTAINER") {
     const containerRules = [
       { key: "food_safe_mark", name: "식품용 문구/마크", law: "기구 및 용기·포장 표시기준" },
@@ -56,7 +63,9 @@ function processLabelRulesEngine(aiData) {
         });
       }
     });
-  } else {
+  } 
+  // [B] 일반 가공식품 10대 필수 규칙
+  else {
     const foodRules = [
       { key: "product_name", name: "제품명", law: "식품등의 표시기준" },
       { key: "food_type", name: "식품유형", law: "식품등의 표시기준" },
@@ -90,6 +99,7 @@ function processLabelRulesEngine(aiData) {
     optionalItems.push({ name: "권장 표기사항", detail: label.optional_info });
   }
 
+  // [C] 증빙서류 주소 교차 대조
   const labelAddr = (label.address || "").replace(/\s+/g, "");
   const docAddr = (doc.address || "").replace(/\s+/g, "");
 
@@ -136,7 +146,7 @@ function processLabelRulesEngine(aiData) {
   };
 }
 
-// 📌 3단계: 광고 상세페이지 표시광고 백엔드 규칙 엔진 (위치 좌표 바운딩박스 포함)
+// 📌 3단계: 광고/상세페이지 백엔드 규칙 엔진 (box_2d 좌표 보정 포함)
 function processAdRulesEngine(aiData) {
   if (!aiData) return null;
 
@@ -152,10 +162,10 @@ function processAdRulesEngine(aiData) {
     else if (level === "LOW") lowCount++;
     else { level = "MEDIUM"; mediumCount++; }
 
-    // Bounding box 좌표 검증 (ymin, xmin, ymax, xmax)
+    // [ymin, xmin, ymax, xmax] 0~1000 범위 상대 좌표 검증
     let box = item.box_2d;
     if (!Array.isArray(box) || box.length !== 4) {
-      box = [100, 100, 300, 900]; // 디폴트 좌표
+      box = [100, 100, 300, 900]; // 디폴트 위치
     }
 
     return {
@@ -187,19 +197,23 @@ function processAdRulesEngine(aiData) {
 
 export default {
   async fetch(request, env) {
-    const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
+    const corsHeaders = { 
+      "Access-Control-Allow-Origin": "*", 
+      "Access-Control-Allow-Methods": "POST, GET, OPTIONS", 
+      "Access-Control-Allow-Headers": "Content-Type" 
+    };
     if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
     
     const geminiApiKey = (env.GEMINI_API_KEY || "").trim();
 
     if (request.method === "GET") {
       if (!geminiApiKey) return new Response(JSON.stringify({ status: "ERROR", message: "GEMINI_API_KEY 없음" }), { headers: corsHeaders });
-      return new Response(JSON.stringify({ system: "LabelGuard AI v8.0.0 (시각적 Bounding Box 좌표 및 2분할 레이아웃)" }), { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
+      return new Response(JSON.stringify({ system: "LabelGuard AI v8.0.0 (단일 이미지 Bounding Box 좌표 생성 백엔드)" }), { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
     }
 
     if (request.method === "POST") {
       try {
-        if (!geminiApiKey) throw new Error("[v8.0.0 오류] 서버 환경 변수(GEMINI_API_KEY)가 없습니다.");
+        if (!geminiApiKey) throw new Error("[v8.0.0 오류] 서버 환경 변수(GEMINI_API_KEY)가 설정되지 않았습니다.");
 
         const formData = await request.formData();
         const labelFile = formData.get("image");
@@ -210,18 +224,25 @@ export default {
 
         const labelBuffer = await labelFile.arrayBuffer();
         const contentsParts = [{ inlineData: { mimeType: labelFile.type || "image/jpeg", data: arrayBufferToBase64(labelBuffer) } }];
+        
         if (docFile && typeof docFile === "object" && docFile.arrayBuffer) {
-          try { const docBuffer = await docFile.arrayBuffer(); if (docBuffer.byteLength > 0) contentsParts.push({ inlineData: { mimeType: docFile.type || "image/jpeg", data: arrayBufferToBase64(docBuffer) } }); } catch (e) {}
+          try { 
+            const docBuffer = await docFile.arrayBuffer(); 
+            if (docBuffer.byteLength > 0) {
+              contentsParts.push({ inlineData: { mimeType: docFile.type || "image/jpeg", data: arrayBufferToBase64(docBuffer) } }); 
+            }
+          } catch (e) {}
         }
 
         let promptText = "";
 
+        // 🅰️ 한글표시사항 전용 프롬프트
         if (inspectMode === "LABEL") {
           promptText = `이미지에서 표기 문구를 추출하여 JSON으로 응답하세요.
 
 [응답 JSON 규격]
 {
-  "category": "CONTAINER" 또는 "FOOD",
+  "category": "CONTAINER" 또는 "FOOD", // 도자기, 컵, 용기, 텀블러는 CONTAINER / 먹는 식품은 FOOD
   "product_name": "제품명",
   "food_type": "식품유형 또는 재질명",
   "label_data": {
@@ -243,10 +264,12 @@ export default {
     "address": "두 번째 제출된 서류 이미지의 주소 (없으면 '없음')"
   }
 }`;
-        } else {
+        } 
+        // 🅱️ 광고/상세페이지 전용 엄격 프롬프트 (좌표 추출 추가)
+        else {
           promptText = `제출된 이미지(상세페이지/광고 홍보물)의 모든 카피 문구를 식약처 및 공정위 표시·광고법 기준 'Zero Tolerance(무결점 엄격 단속 원칙)'로 정밀 검수하여 JSON으로 응답하세요.
 
-* 중요: 각 문제가 되는 문구의 위치를 이미지 상의 상대 좌표 [ymin, xmin, ymax, xmax] (0~1000 정수 범위)로 정확히 box_2d 필드에 구하세요.
+* 🚨 핵심 지침: 각 문제 문구가 발견된 정확한 시각적 위치를 [ymin, xmin, ymax, xmax] (0~1000 범위의 상대 정수 좌표) 형태로 box_2d 필드에 구하세요.
 
 [위험도 엄격 분류 수칙]
 - HIGH (상: 무조건 수정): 특정 원재료(등심, 찹쌀 등) 강조 후 함량(%) 미표기, 라벨과 상세페이지 불일치, 허위·과대광고, 해상도 저하로 필수 정보 식별 불가.
@@ -260,7 +283,7 @@ export default {
   "ad_risk_items": [
     {
       "level": "HIGH", // HIGH / MEDIUM / LOW
-      "box_2d": [120, 40, 280, 960], // [ymin, xmin, ymax, xmax] (0~1000 범위)
+      "box_2d": [120, 40, 280, 960], // [ymin, xmin, ymax, xmax] (0~1000 상대좌표)
       "target_text": "광고 내 문제가 된 원문 문구",
       "issue": "위반/점검 항목명",
       "reason": "단속 사유 상세 설명",
@@ -274,7 +297,10 @@ export default {
 
         const targetModel = "gemini-3.6-flash";
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${geminiApiKey}`;
-        const requestBody = { contents: [{ parts: contentsParts }], generationConfig: { responseMimeType: "application/json", temperature: 0.1 } };
+        const requestBody = { 
+          contents: [{ parts: contentsParts }], 
+          generationConfig: { responseMimeType: "application/json", temperature: 0.1 } 
+        };
 
         let rawResponseText = "";
         let lastErrorLog = "";
@@ -310,10 +336,16 @@ export default {
           ? processAdRulesEngine(aiExtractedData) 
           : processLabelRulesEngine(aiExtractedData);
 
-        return new Response(JSON.stringify({ success: true, result: finalReport }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
+        return new Response(JSON.stringify({ success: true, result: finalReport }), { 
+          status: 200, 
+          headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } 
+        });
 
       } catch (err) {
-        return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
+        return new Response(JSON.stringify({ success: false, error: err.message }), { 
+          status: 500, 
+          headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } 
+        });
       }
     }
   }
