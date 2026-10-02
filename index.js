@@ -33,7 +33,6 @@ function processLabelRulesEngine(aiData) {
   let optionalItems = [];
   let crossCheck = [];
 
-  // [A] 용기·포장류 (도자기, 유리, 텀블러 등) 5대 필수 규칙
   if (category === "CONTAINER") {
     const containerRules = [
       { key: "food_safe_mark", name: "식품용 문구/마크", law: "기구 및 용기·포장 표시기준" },
@@ -57,9 +56,7 @@ function processLabelRulesEngine(aiData) {
         });
       }
     });
-  } 
-  // [B] 일반 가공식품 10대 필수 규칙
-  else {
+  } else {
     const foodRules = [
       { key: "product_name", name: "제품명", law: "식품등의 표시기준" },
       { key: "food_type", name: "식품유형", law: "식품등의 표시기준" },
@@ -93,7 +90,6 @@ function processLabelRulesEngine(aiData) {
     optionalItems.push({ name: "권장 표기사항", detail: label.optional_info });
   }
 
-  // [C] 증빙서류 주소 교차 대조
   const labelAddr = (label.address || "").replace(/\s+/g, "");
   const docAddr = (doc.address || "").replace(/\s+/g, "");
 
@@ -140,7 +136,7 @@ function processLabelRulesEngine(aiData) {
   };
 }
 
-// 📌 3단계: 광고 상세페이지 표시광고 백엔드 규칙 엔진
+// 📌 3단계: 광고 상세페이지 표시광고 백엔드 규칙 엔진 (위치 좌표 바운딩박스 포함)
 function processAdRulesEngine(aiData) {
   if (!aiData) return null;
 
@@ -156,9 +152,16 @@ function processAdRulesEngine(aiData) {
     else if (level === "LOW") lowCount++;
     else { level = "MEDIUM"; mediumCount++; }
 
+    // Bounding box 좌표 검증 (ymin, xmin, ymax, xmax)
+    let box = item.box_2d;
+    if (!Array.isArray(box) || box.length !== 4) {
+      box = [100, 100, 300, 900]; // 디폴트 좌표
+    }
+
     return {
       level: level,
       level_kr: level === "HIGH" ? "상 (무조건 수정)" : (level === "MEDIUM" ? "중 (수정 강력 권장)" : "하 (선택 참고)"),
+      box_2d: box,
       target_text: item.target_text || "광고 내 관련 문구",
       issue: item.issue || "표시·광고법 검토 항목",
       reason: item.reason || "식약처 표시광고 가이드라인 기준",
@@ -191,17 +194,16 @@ export default {
 
     if (request.method === "GET") {
       if (!geminiApiKey) return new Response(JSON.stringify({ status: "ERROR", message: "GEMINI_API_KEY 없음" }), { headers: corsHeaders });
-      return new Response(JSON.stringify({ system: "LabelGuard AI v7.0.0 (명시적 2가지 업로드 모드 완벽 분기 적용)" }), { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
+      return new Response(JSON.stringify({ system: "LabelGuard AI v8.0.0 (시각적 Bounding Box 좌표 및 2분할 레이아웃)" }), { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
     }
 
     if (request.method === "POST") {
       try {
-        if (!geminiApiKey) throw new Error("[v7.0.0 오류] 서버 환경 변수(GEMINI_API_KEY)가 없습니다.");
+        if (!geminiApiKey) throw new Error("[v8.0.0 오류] 서버 환경 변수(GEMINI_API_KEY)가 없습니다.");
 
         const formData = await request.formData();
         const labelFile = formData.get("image");
         const docFile = formData.get("doc");
-        // 🚨 핵심: 프론트엔드에서 파라미터로 넘겨주는 검수 모드 (LABEL 또는 AD)
         const inspectMode = (formData.get("mode") || "LABEL").toUpperCase();
 
         if (!labelFile) throw new Error("분석할 이미지가 전송되지 않았습니다.");
@@ -214,15 +216,12 @@ export default {
 
         let promptText = "";
 
-        // ===================================================
-        // 🅰️ [모드 1] 한글표시사항 라벨 전용 프롬프트
-        // ===================================================
         if (inspectMode === "LABEL") {
           promptText = `이미지에서 표기 문구를 추출하여 JSON으로 응답하세요.
 
 [응답 JSON 규격]
 {
-  "category": "CONTAINER" 또는 "FOOD", // 도자기, 컵, 용기, 텀블러는 CONTAINER / 먹는 식품은 FOOD
+  "category": "CONTAINER" 또는 "FOOD",
   "product_name": "제품명",
   "food_type": "식품유형 또는 재질명",
   "label_data": {
@@ -243,14 +242,11 @@ export default {
   "doc_data": {
     "address": "두 번째 제출된 서류 이미지의 주소 (없으면 '없음')"
   }
-}
-* 라벨에서 문구를 찾을 수 없는 필드는 "없음"으로 적으세요.`;
-        } 
-        // ===================================================
-        // 🅱️ [모드 2] 광고 / 상세페이지 전용 엄격 프롬프트
-        // ===================================================
-        else {
+}`;
+        } else {
           promptText = `제출된 이미지(상세페이지/광고 홍보물)의 모든 카피 문구를 식약처 및 공정위 표시·광고법 기준 'Zero Tolerance(무결점 엄격 단속 원칙)'로 정밀 검수하여 JSON으로 응답하세요.
+
+* 중요: 각 문제가 되는 문구의 위치를 이미지 상의 상대 좌표 [ymin, xmin, ymax, xmax] (0~1000 정수 범위)로 정확히 box_2d 필드에 구하세요.
 
 [위험도 엄격 분류 수칙]
 - HIGH (상: 무조건 수정): 특정 원재료(등심, 찹쌀 등) 강조 후 함량(%) 미표기, 라벨과 상세페이지 불일치, 허위·과대광고, 해상도 저하로 필수 정보 식별 불가.
@@ -264,6 +260,7 @@ export default {
   "ad_risk_items": [
     {
       "level": "HIGH", // HIGH / MEDIUM / LOW
+      "box_2d": [120, 40, 280, 960], // [ymin, xmin, ymax, xmax] (0~1000 범위)
       "target_text": "광고 내 문제가 된 원문 문구",
       "issue": "위반/점검 항목명",
       "reason": "단속 사유 상세 설명",
@@ -304,12 +301,11 @@ export default {
           }
         }
 
-        if (!rawResponseText) throw new Error(`[v7.0.0 서버 오류] ${targetModel} 요청 실패. 잠시 후 다시 시도해주세요. 상세: ${lastErrorLog.substring(0, 100)}`);
+        if (!rawResponseText) throw new Error(`[v8.0.0 서버 오류] ${targetModel} 요청 실패. 잠시 후 다시 시도해주세요. 상세: ${lastErrorLog.substring(0, 100)}`);
 
         const aiExtractedData = parseAIJSON(rawResponseText);
-        if (!aiExtractedData) throw new Error("[v7.0.0 서버 오류] AI 추출 데이터 파싱 실패");
+        if (!aiExtractedData) throw new Error("[v8.0.0 서버 오류] AI 추출 데이터 파싱 실패");
 
-        // 📌 선택된 모드에 맞는 백엔드 규칙 엔진 실행
         const finalReport = (inspectMode === "AD") 
           ? processAdRulesEngine(aiExtractedData) 
           : processLabelRulesEngine(aiExtractedData);
