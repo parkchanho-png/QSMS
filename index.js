@@ -8,38 +8,7 @@ function arrayBufferToBase64(buffer) {
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// 📌 1단계: 국가법령정보센터(open.law.go.kr) 경량 메타데이터 실시간 수집 (과부하 차단)
-async function fetchLatestLawInfo(lawApiKey) {
-  if (!lawApiKey) {
-    return "[식약처 고시 기준] 『식품등의 표시기준』 및 『식품등의 표시·광고에 관한 법률』 적용";
-  }
-  
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000); // 2초 초과 시 자동 패스
-
-    const lawUrl = `https://www.law.go.kr/DRF/lawSearch.do?OC=${lawApiKey}&target=admrul&query=${encodeURIComponent("식품등의 표시기준")}&type=XML`;
-    const res = await fetch(lawUrl, { signal: controller.signal });
-    clearTimeout(timeoutId);
-
-    if (!res.ok) return "[식약처 고시 기준] 실시간 법령 동기화 대기 (기본 표준 고시 적용)";
-    
-    const xmlText = await res.text();
-    const titleMatch = xmlText.match(/<행정규칙명>(.*?)<\/행정규칙명>/);
-    const dateMatch = xmlText.match(/<시행일자>(.*?)<\/시행일자>/);
-    const numMatch = xmlText.match(/<발령번호>(.*?)<\/발령번호>/);
-
-    const title = titleMatch ? titleMatch[1] : "식품등의 표시기준";
-    const date = dateMatch ? dateMatch[1] : "최신";
-    const num = numMatch ? numMatch[1] : "";
-
-    return `[국가법령정보센터 실시간 동기화 완료] 식약처 고시 『${title}』 (시행일자: ${date}${num ? `, 제${num}호` : ''})`;
-  } catch (e) {
-    return "[식약처 고시 기준] 법령 동기화 타임아웃 (기본 표준 고시 적용)";
-  }
-}
-
-// 📌 2단계: 안전 JSON 파서
+// 📌 1단계: 안전 JSON 파서
 function parseAIJSON(raw) {
   if (!raw) return null;
   let str = typeof raw === "string" ? raw : JSON.stringify(raw);
@@ -57,8 +26,37 @@ function parseAIJSON(raw) {
   }
 }
 
-// 📌 3단계: 한글표시사항 백엔드 규칙 엔진
-function processLabelRulesEngine(aiData, lawHeaderStr) {
+// 📌 2단계: 고정 사전(Dictionary) 대조 테이블 - 절대로 바뀌지 않는 절대 기준
+const AD_RULES_DICTIONARY = [
+  {
+    id: "RULE_INGREDIENT_PERCENT",
+    keywords: ["등심", "통등심", "찹쌀", "안심", "삼겹살", "한우", "국산", "특제", "새우", "치즈"],
+    exclude_keywords: ["%", "퍼센트", "함유", "g"], // 함량이 표기되어 있으면 통과
+    level: "HIGH",
+    issue: "특정 원재료명 강조 시 함량 미표기",
+    reason: "상세페이지 전면 카피에서 특정 원재료를 강조하여 표기하였으나, 해당 원재료의 배합 비율(%)을 명시하지 않아 표시·광고 기준 위반 위험이 있습니다.",
+    action: "강조된 원재료명 부근 또는 관련 이미지 주변에 '돼지고기(등심) 00%'와 같이 정확한 함량을 명확히 표기하세요."
+  },
+  {
+    id: "RULE_BEST_PUFFING",
+    keywords: ["깨끗한", "최상", "최고", "1위", "특허", "시그니처", "가장 많은", "전문점의 맛"],
+    level: "MEDIUM",
+    issue: "객관적 실증이 필요한 품질 우수성 표현 사용",
+    reason: "객관적 실증 자료(산가 측정치, 설문조사 데이터 등) 없이 최상급 또는 우수성을 암시하는 표현을 사용 시 식약처 실증자료 제출 명령 대상이 될 수 있습니다.",
+    action: "실증 자료(시험성적서 등)를 사전 확보하거나, '깔끔하게 튀겨낸', '인기 메뉴' 등으로 문구를 완화하세요."
+  },
+  {
+    id: "RULE_COOKING_EXAMPLE",
+    keywords: ["조리예", "연출된", "이미지"],
+    level: "LOW",
+    issue: "조리예 및 연출컷 문구 표기 상태",
+    reason: "소비자 오인 방지를 위한 연출 문구가 정상 표기되어 있으나 시각적 식별성을 높이는 것을 권장합니다.",
+    action: "사진 하단 연출 문구의 글자 크기를 조금 더 잘 보이도록 조정 권장합니다."
+  }
+];
+
+// 📌 3단계: 한글표시사항 규칙 엔진
+function processLabelRulesEngine(aiData) {
   if (!aiData) return null;
 
   const category = aiData.category || "FOOD";
@@ -70,14 +68,13 @@ function processLabelRulesEngine(aiData, lawHeaderStr) {
   let optionalItems = [];
   let crossCheck = [];
 
-  // [A] 용기·포장류 (도자기, 유리, 텀블러 등) 5대 필수 규칙
   if (category === "CONTAINER") {
     const containerRules = [
-      { key: "food_safe_mark", name: "식품용 문구/마크", law: "기구 및 용기·포장 표시기준" },
-      { key: "material", name: "재질명", law: "기구 및 용기·포장 표시기준" },
-      { key: "business_name", name: "영업소 명칭(제조원/판매원)", law: "기구 및 용기·포장 표시기준" },
-      { key: "address", name: "영업소 소재지(주소)", law: "기구 및 용기·포장 표시기준" },
-      { key: "caution", name: "보관 및 취급상 주의사항", law: "기구 및 용기·포장 표시기준" }
+      { key: "food_safe_mark", name: "식품용 문구/마크" },
+      { key: "material", name: "재질명" },
+      { key: "business_name", name: "영업소 명칭(제조원/판매원)" },
+      { key: "address", name: "영업소 소재지(주소)" },
+      { key: "caution", name: "보관 및 취급상 주의사항" }
     ];
 
     containerRules.forEach(rule => {
@@ -89,25 +86,23 @@ function processLabelRulesEngine(aiData, lawHeaderStr) {
           item_name: rule.name,
           found_text: "표기 없음(누락)",
           issue_reason: `${rule.name} 항목 누락`,
-          law: rule.law,
+          law: "기구 및 용기·포장 표시기준",
           how_to_improve: `${rule.name} 정보를 라벨에 명확히 표기해야 합니다.`
         });
       }
     });
-  } 
-  // [B] 일반 가공식품 10대 필수 규칙
-  else {
+  } else {
     const foodRules = [
-      { key: "product_name", name: "제품명", law: "식품등의 표시기준" },
-      { key: "food_type", name: "식품유형", law: "식품등의 표시기준" },
-      { key: "business_name", name: "영업소 명칭(제조원/판매원)", law: "식품등의 표시기준" },
-      { key: "address", name: "영업소 소재지(주소)", law: "식품등의 표시기준" },
-      { key: "expiration_date", name: "소비기한(유통기한)", law: "식품등의 표시기준" },
-      { key: "net_weight", name: "내용량 및 열량", law: "식품등의 표시기준" },
-      { key: "ingredients", name: "원재료명", law: "식품등의 표시기준" },
-      { key: "nutrition", name: "영양성분", law: "식품등의 표시기준" },
-      { key: "package_material", name: "용기·포장재질", law: "식품등의 표시기준" },
-      { key: "caution", name: "보관방법 및 주의사항", law: "식품등의 표시기준" }
+      { key: "product_name", name: "제품명" },
+      { key: "food_type", name: "식품유형" },
+      { key: "business_name", name: "영업소 명칭(제조원/판매원)" },
+      { key: "address", name: "영업소 소재지(주소)" },
+      { key: "expiration_date", name: "소비기한(유통기한)" },
+      { key: "net_weight", name: "내용량 및 열량" },
+      { key: "ingredients", name: "원재료명" },
+      { key: "nutrition", name: "영양성분" },
+      { key: "package_material", name: "용기·포장재질" },
+      { key: "caution", name: "보관방법 및 주의사항" }
     ];
 
     foodRules.forEach(rule => {
@@ -119,7 +114,7 @@ function processLabelRulesEngine(aiData, lawHeaderStr) {
           item_name: rule.name,
           found_text: "표기 없음(누락)",
           issue_reason: `${rule.name} 항목 누락`,
-          law: rule.law,
+          law: "식품등의 표시기준",
           how_to_improve: `${rule.name} 정보를 라벨에 명확히 표기해야 합니다.`
         });
       }
@@ -130,45 +125,21 @@ function processLabelRulesEngine(aiData, lawHeaderStr) {
     optionalItems.push({ name: "권장 표기사항", detail: label.optional_info });
   }
 
-  // [C] 증빙서류 주소 교차 대조
   const labelAddr = (label.address || "").replace(/\s+/g, "");
   const docAddr = (doc.address || "").replace(/\s+/g, "");
 
   if (!docAddr || docAddr.includes("없음") || docAddr.includes("미제출")) {
-    crossCheck.push({
-      item: "영업소 소재지",
-      status: "mismatch",
-      label_value: label.address || "라벨 표기값",
-      doc_value: "증빙서류 미제출",
-      note: "자료확인불가"
-    });
+    crossCheck.push({ item: "영업소 소재지", status: "mismatch", label_value: label.address || "라벨 표기값", doc_value: "증빙서류 미제출", note: "자료확인불가" });
   } else if (labelAddr === docAddr) {
-    crossCheck.push({
-      item: "영업소 소재지",
-      status: "match",
-      label_value: label.address,
-      doc_value: doc.address,
-      note: "일치함"
-    });
+    crossCheck.push({ item: "영업소 소재지", status: "match", label_value: label.address, doc_value: doc.address, note: "일치함" });
   } else {
-    crossCheck.push({
-      item: "영업소 소재지",
-      status: "mismatch",
-      label_value: label.address,
-      doc_value: doc.address,
-      note: labelAddr.length < docAddr.length ? "상세주소 누락" : "주소 불일치"
-    });
+    crossCheck.push({ item: "영업소 소재지", status: "mismatch", label_value: label.address, doc_value: doc.address, note: "주소 불일치" });
   }
 
   return {
     inspect_mode: "LABEL",
-    law_status: lawHeaderStr,
-    summary: `${lawHeaderStr}\n${category === "CONTAINER" ? "기구 및 용기·포장류 기준 5대 필수 항목 정밀 검수를 완료했습니다." : "가공식품 표시기준 10대 필수 항목 정밀 검수를 완료했습니다."}`,
-    analyzed_summary: {
-      product_name: aiData.product_name || "판독 완료",
-      food_type: aiData.food_type || "분류 완료",
-      detected_items_count: passedItems.length + failedItems.length + optionalItems.length
-    },
+    summary: category === "CONTAINER" ? "기구 및 용기·포장류 5대 필수 항목 검수 완료" : "가공식품 10대 필수 항목 검수 완료",
+    analyzed_summary: { product_name: aiData.product_name || "판독 완료", food_type: aiData.food_type || "분류 완료", detected_items_count: passedItems.length + failedItems.length },
     passed_items: passedItems,
     optional_items: optionalItems,
     failed_items: failedItems,
@@ -176,44 +147,55 @@ function processLabelRulesEngine(aiData, lawHeaderStr) {
   };
 }
 
-// 📌 4단계: 광고/상세페이지 백엔드 규칙 엔진
-function processAdRulesEngine(aiData, lawHeaderStr) {
+// 📌 4단계: 고정 사전에 의한 무변동 광고 정밀 검수 엔진
+function processAdRulesEngine(aiData) {
   if (!aiData) return null;
 
-  const rawRisks = aiData.ad_risk_items || [];
+  const detectedPhrases = aiData.detected_phrases || [];
+  let formattedRisks = [];
   let highCount = 0;
   let mediumCount = 0;
   let lowCount = 0;
 
-  const formattedRisks = rawRisks.map(item => {
-    let level = (item.level || "MEDIUM").toUpperCase();
-    
-    if (level === "HIGH") highCount++;
-    else if (level === "LOW") lowCount++;
-    else { level = "MEDIUM"; mediumCount++; }
+  // AI가 뽑아온 문구들을 백엔드 고정 사전과 1:1 확정 대조
+  detectedPhrases.forEach((item, index) => {
+    const text = item.text || "";
+    const box = (Array.isArray(item.box_2d) && item.box_2d.length === 4) ? item.box_2d : [100, 100, 300, 900];
 
-    let box = item.box_2d;
-    if (!Array.isArray(box) || box.length !== 4) {
-      box = [100, 100, 300, 900];
+    // 매칭되는 고정 규칙 찾기
+    let matchedRule = null;
+    for (const rule of AD_RULES_DICTIONARY) {
+      const hasKeyword = rule.keywords.some(kw => text.includes(kw));
+      const hasExcluded = rule.exclude_keywords ? rule.exclude_keywords.some(ex => text.includes(ex)) : false;
+      
+      if (hasKeyword && !hasExcluded) {
+        matchedRule = rule;
+        break; // 가장 높은 우선순위 매칭
+      }
     }
 
-    return {
-      level: level,
-      level_kr: level === "HIGH" ? "상 (무조건 수정)" : (level === "MEDIUM" ? "중 (수정 강력 권장)" : "하 (선택 참고)"),
-      box_2d: box,
-      target_text: item.target_text || "광고 내 관련 문구",
-      issue: item.issue || "표시·광고법 검토 항목",
-      reason: item.reason || "식약처 표시광고 가이드라인 기준",
-      action: item.action || "문구 수정 및 증빙자료 준비"
-    };
+    if (matchedRule) {
+      if (matchedRule.level === "HIGH") highCount++;
+      else if (matchedRule.level === "MEDIUM") mediumCount++;
+      else lowCount++;
+
+      formattedRisks.push({
+        level: matchedRule.level,
+        level_kr: matchedRule.level === "HIGH" ? "상 (무조건 수정)" : (matchedRule.level === "MEDIUM" ? "중 (수정 강력 권장)" : "하 (선택 참고)"),
+        box_2d: box,
+        target_text: text,
+        issue: matchedRule.issue,
+        reason: matchedRule.reason,
+        action: matchedRule.action
+      });
+    }
   });
 
   return {
     inspect_mode: "AD",
-    law_status: lawHeaderStr,
     product_info: {
       product_name: aiData.product_name || "판독 완료",
-      detected_category: `${aiData.detected_category || "상세페이지 광고"} (${lawHeaderStr})`
+      detected_category: aiData.detected_category || "상세페이지 광고"
     },
     risk_summary: {
       total_issues: formattedRisks.length,
@@ -235,16 +217,15 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
     
     const geminiApiKey = (env.GEMINI_API_KEY || "").trim();
-    const lawApiKey = (env.LAW_API_KEY || "").trim();
 
     if (request.method === "GET") {
       if (!geminiApiKey) return new Response(JSON.stringify({ status: "ERROR", message: "GEMINI_API_KEY 없음" }), { headers: corsHeaders });
-      return new Response(JSON.stringify({ system: "LabelGuard AI v8.5.0 (경량 국가법령 API 실시간 연동 완료)" }), { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
+      return new Response(JSON.stringify({ system: "LabelGuard AI v9.0.0 (고정 사전 대조형 무변동 엔진)" }), { headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
     }
 
     if (request.method === "POST") {
       try {
-        if (!geminiApiKey) throw new Error("[v8.5.0 오류] 서버 환경 변수(GEMINI_API_KEY)가 설정되지 않았습니다.");
+        if (!geminiApiKey) throw new Error("[v9.0.0 오류] 서버 GEMINI_API_KEY가 없습니다.");
 
         const formData = await request.formData();
         const labelFile = formData.get("image");
@@ -252,9 +233,6 @@ export default {
         const inspectMode = (formData.get("mode") || "LABEL").toUpperCase();
 
         if (!labelFile) throw new Error("분석할 이미지가 전송되지 않았습니다.");
-
-        // 1. 국가법령정보센터 경량 메타데이터 동시 수집
-        const lawHeaderStr = await fetchLatestLawInfo(lawApiKey);
 
         const labelBuffer = await labelFile.arrayBuffer();
         const contentsParts = [{ inlineData: { mimeType: labelFile.type || "image/jpeg", data: arrayBufferToBase64(labelBuffer) } }];
@@ -271,56 +249,36 @@ export default {
         let promptText = "";
 
         if (inspectMode === "LABEL") {
-          promptText = `다음 기준을 준수하여 이미지에서 표기 문구를 추출하고 JSON으로 응답하세요.
-기준: ${lawHeaderStr}
-
-[응답 JSON 규격]
+          promptText = `이미지에서 표기 문구를 추출하여 JSON으로 응답하세요.
+[응답 규격]
 {
-  "category": "CONTAINER" 또는 "FOOD", // 도자기, 컵, 용기, 텀블러는 CONTAINER / 먹는 식품은 FOOD
+  "category": "CONTAINER" 또는 "FOOD",
   "product_name": "제품명",
-  "food_type": "식품유형 또는 재질명",
+  "food_type": "식품유형",
   "label_data": {
-    "product_name": "라벨의 제품명",
-    "food_type": "라벨의 식품유형",
-    "food_safe_mark": "식품용 문구 표기 또는 잔/포크 마크 존재 여부",
-    "material": "재질명 (예: 도자기제, 유리제)",
-    "business_name": "영업소 명칭(제조원/판매원)",
-    "address": "영업소 소재지 주소",
-    "caution": "취급상 주의사항",
-    "expiration_date": "소비기한 또는 유통기한",
-    "net_weight": "내용량 및 열량",
-    "ingredients": "원재료명",
-    "nutrition": "영양성분",
-    "package_material": "용기포장재질",
-    "optional_info": "기타 표기사항(고객상담실 등)"
+    "product_name": "제품명", "food_type": "식품유형", "food_safe_mark": "식품용마크",
+    "material": "재질명", "business_name": "제조/판매원", "address": "주소",
+    "caution": "주의사항", "expiration_date": "소비기한", "net_weight": "내용량",
+    "ingredients": "원재료명", "nutrition": "영양성분", "package_material": "포장재질",
+    "optional_info": "기타"
   },
-  "doc_data": {
-    "address": "두 번째 제출된 서류 이미지의 주소 (없으면 '없음')"
-  }
+  "doc_data": { "address": "서류주소" }
 }`;
         } else {
-          promptText = `다음 법령 및 식약처/공정위 표시·광고법 기준 'Zero Tolerance(무결점 엄격 단속 원칙)'로 상세페이지를 검수하여 JSON으로 응답하세요.
-기준: ${lawHeaderStr}
+          promptText = `제출된 광고/상세페이지 이미지에서 눈에 보이는 모든 '홍보성 텍스트 문구'를 원문 그대로 추출하고, 해당 텍스트 글자 영역의 정밀 좌표를 JSON으로 반환하세요.
 
-* 각 문제 문구가 발견된 정확한 위치를 [ymin, xmin, ymax, xmax] (0~1000 상대 정수 좌표) 형태로 box_2d 필드에 구하세요.
-
-[위험도 엄격 분류 수칙]
-- HIGH (상: 무조건 수정): 특정 원재료(등심, 찹쌀 등) 강조 후 함량(%) 미표기, 라벨과 상세페이지 불일치, 허위·과대광고, 해상도 저하로 필수 정보 식별 불가.
-- MEDIUM (중: 수정 강력 권장): 객관적 실증이 필요한 최상급/우수성 표현("깨끗한", "최상급", "특제", "전문점의 맛"), 조리예 미표기, 제조/판매사 미세 불일치.
-- LOW (하: 선택 참고): 법적 제재 가능성이 완벽히 부재한 단순 디자인 가이드.
+[🚨 절대 규칙 - 좌표 지정 수칙]
+1. box_2d는 [ymin, xmin, ymax, xmax] (0~1000 정수) 좌표입니다.
+2. ⚠️ 경고: 탕수육, 고기, 음식 사진이나 배경 이미지를 절대로 박스로 치지 마세요! 오직 텍스트 글자 픽셀 테두리만 아주 좁고 타이트하게 감싸야 합니다!
 
 [응답 JSON 규격]
 {
   "product_name": "제품명",
-  "detected_category": "제품 분류/식품유형",
-  "ad_risk_items": [
+  "detected_category": "제품 분류",
+  "detected_phrases": [
     {
-      "level": "HIGH", // HIGH / MEDIUM / LOW
-      "box_2d": [120, 40, 280, 960],
-      "target_text": "광고 내 문제가 된 원문 문구",
-      "issue": "위반/점검 항목명",
-      "reason": "단속 사유 상세 설명",
-      "action": "수정 가이드라인"
+      "text": "도톰한 등심과 쫄깃한 튀김옷이 어우러진 새콤달콤한 탕수육",
+      "box_2d": [ymin, xmin, ymax, xmax] // 오직 글자 픽셀 테두리만 지정할 것!
     }
   ]
 }`;
@@ -330,9 +288,14 @@ export default {
 
         const targetModel = "gemini-3.6-flash";
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${targetModel}:generateContent?key=${geminiApiKey}`;
+        
+        // 🚨 temperature: 0.0 으로 설정하여 생성형 무작위성을 완전 차단
         const requestBody = { 
           contents: [{ parts: contentsParts }], 
-          generationConfig: { responseMimeType: "application/json", temperature: 0.1 } 
+          generationConfig: { 
+            responseMimeType: "application/json", 
+            temperature: 0.0 
+          } 
         };
 
         let rawResponseText = "";
@@ -360,14 +323,14 @@ export default {
           }
         }
 
-        if (!rawResponseText) throw new Error(`[v8.5.0 서버 오류] ${targetModel} 요청 실패. 잠시 후 다시 시도해주세요. 상세: ${lastErrorLog.substring(0, 100)}`);
+        if (!rawResponseText) throw new Error(`[v9.0.0 서버 오류] ${targetModel} 요청 실패: ${lastErrorLog.substring(0, 100)}`);
 
         const aiExtractedData = parseAIJSON(rawResponseText);
-        if (!aiExtractedData) throw new Error("[v8.5.0 서버 오류] AI 추출 데이터 파싱 실패");
+        if (!aiExtractedData) throw new Error("[v9.0.0 서버 오류] AI 추출 데이터 파싱 실패");
 
         const finalReport = (inspectMode === "AD") 
-          ? processAdRulesEngine(aiExtractedData, lawHeaderStr) 
-          : processLabelRulesEngine(aiExtractedData, lawHeaderStr);
+          ? processAdRulesEngine(aiExtractedData) 
+          : processLabelRulesEngine(aiExtractedData);
 
         return new Response(JSON.stringify({ success: true, result: finalReport }), { 
           status: 200, 
