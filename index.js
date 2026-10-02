@@ -17,19 +17,31 @@ function parseAIJSON(raw) {
   try { return JSON.parse(str.slice(start, end + 1)); } catch (e) { return null; }
 }
 
-// 📌 1단계: 국가법령 실시간 수집 함수 (과부하 방지 2초 타임아웃)
+// 📌 국가법령 실시간 수집 함수 (타임아웃 4초 확대 및 구체적 에러 로그 표기)
 async function fetchLatestLawInfo(lawApiKey) {
-  if (!lawApiKey) return "[기본 모드] 식약처 고시 『식품등의 표시기준』 적용 (실시간 API 미사용)";
+  if (!lawApiKey) {
+    return "[기본 모드] 식약처 고시 『식품등의 표시기준』 (Cloudflare에 LAW_API_KEY 환경변수 미설정)";
+  }
+  
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000);
+    const timeoutId = setTimeout(() => controller.abort(), 4000); // 타임아웃 2초 -> 4초로 확대
+
     const lawUrl = `https://www.law.go.kr/DRF/lawSearch.do?OC=${lawApiKey}&target=admrul&query=${encodeURIComponent("식품등의 표시기준")}&type=XML`;
     const res = await fetch(lawUrl, { signal: controller.signal });
     clearTimeout(timeoutId);
 
-    if (!res.ok) return "[기본 모드] 법령 동기화 일시 대기";
+    if (!res.ok) return `[기본 모드] 법령 서버 응답 에러 (상태코드: ${res.status})`;
+
     const xmlText = await res.text();
-    const titleMatch = xmlText.match(/<행정규칙명>(.*?)<\/행정규칙명>/);
+
+    // API 키 오류 또는 응답 실패 메시지 확인
+    if (xmlText.includes("<result>") && xmlText.includes("오류")) {
+      const errMatch = xmlText.match(/<message>(.*?)<\/message>/) || xmlText.match(/<result>(.*?)<\/result>/);
+      return `[기본 모드] 법령 API 키 오류: ${errMatch ? errMatch[1] : "인증 실패"}`;
+    }
+
+    const titleMatch = xmlText.match(/<행정규칙명>(.*?)<\/행정규칙명>/) || xmlText.match(/<법령명>(.*?)<\/법령명>/);
     const dateMatch = xmlText.match(/<시행일자>(.*?)<\/시행일자>/);
     const numMatch = xmlText.match(/<발령번호>(.*?)<\/발령번호>/);
 
@@ -37,9 +49,13 @@ async function fetchLatestLawInfo(lawApiKey) {
     const date = dateMatch ? dateMatch[1] : "최신";
     const num = numMatch ? numMatch[1] : "";
 
-    return `[국가법령정보센터 실시간 동기화] 식약처 고시 『${title}』 (시행일자: ${date}${num ? `, 제${num}호` : ''})`;
+    return `[국가법령정보센터 실시간 동기화 완료] 식약처 고시 『${title}』 (시행일자: ${date}${num ? `, 제${num}호` : ''})`;
+
   } catch (e) {
-    return "[기본 모드] 법령 동기화 시간 초과";
+    if (e.name === 'AbortError') {
+      return "[기본 모드] 국가법령 서버 응답 지연 (4초 시간 초과)";
+    }
+    return `[기본 모드] 법령 동기화 실패 (${e.message})`;
   }
 }
 
