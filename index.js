@@ -163,24 +163,58 @@ export default {
 
         contentsParts.unshift({ text: promptText });
 
-        // 정식 지원 모델명(gemini-1.5-flash) 적용
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
-        const geminiRes = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contents: [{ parts: contentsParts }], generationConfig: { responseMimeType: "application/json", temperature: 0.0 } })
-        });
+        // 📌 [여기서부터 핵심] v8.0 방식의 404/503 오류 우회 폴백 루프 적용
+        const modelsToTry = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-flash-latest"];
+        let rawResponseText = "";
+        let lastErrorLog = "";
 
-        if (!geminiRes.ok) {
-          const errDetail = await geminiRes.text();
-          throw new Error(`Gemini API 오류 (${geminiRes.status}): ${errDetail.substring(0, 150)}`);
+        for (const modelName of modelsToTry) {
+          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
+          const requestBody = {
+            contents: [{ parts: contentsParts }],
+            generationConfig: { responseMimeType: "application/json", temperature: 0.0 }
+          };
+
+          const retryDelays = [1500, 3000];
+          let is404 = false;
+
+          for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+            try {
+              const geminiRes = await fetch(endpoint, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(requestBody)
+              });
+
+              if (geminiRes.ok) {
+                const data = await geminiRes.json();
+                rawResponseText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                if (rawResponseText) break;
+              } else {
+                lastErrorLog = await geminiRes.text();
+                if (geminiRes.status === 404) {
+                  is404 = true;
+                  break; // 404 에러면 즉시 다음 모델(for문)로 넘어감
+                }
+                if ((geminiRes.status === 503 || geminiRes.status === 429) && attempt < retryDelays.length) {
+                  await delay(retryDelays[attempt]); // 503 에러면 잠시 대기 후 재시도
+                } else {
+                  break;
+                }
+              }
+            } catch (e) {
+              lastErrorLog = e.message;
+            }
+          }
+
+          if (rawResponseText) break; // 응답을 성공적으로 받았으면 전체 루프 탈출
+          if (is404) continue; // 404로 실패했으면 다음 모델 시도
         }
 
-        const data = await geminiRes.json();
-        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-        const aiExtractedData = parseAIJSON(rawText);
+        if (!rawResponseText) throw new Error(`[API 오류] 구글 서버 응답 실패: ${lastErrorLog.substring(0, 150)}`);
 
-        if (!aiExtractedData) throw new Error("AI 결과 데이터를 해석하지 못했습니다.");
+        const aiExtractedData = parseAIJSON(rawResponseText);
+        if (!aiExtractedData) throw new Error("AI 결과 데이터를 파싱하지 못했습니다.");
 
         const finalReport = (inspectMode === "AD") ? processAdRulesEngine(aiExtractedData) : processLabelRulesEngine(aiExtractedData);
         return new Response(JSON.stringify({ success: true, result: finalReport }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
