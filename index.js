@@ -1,4 +1,3 @@
-// ArrayBuffer -> Base64 변환
 function arrayBufferToBase64(buffer) {
   let binary = '';
   const bytes = new Uint8Array(buffer);
@@ -15,39 +14,27 @@ function parseAIJSON(raw) {
   const start = str.indexOf('{');
   const end = str.lastIndexOf('}');
   if (start === -1 || end === -1 || end <= start) return null;
-  const jsonCandidate = str.slice(start, end + 1);
-  try { return JSON.parse(jsonCandidate); } 
-  catch (e) {
-    try {
-      const cleaned = jsonCandidate.replace(/[\u0000-\u001F]+/g, " ").replace(/,\s*([\}\]])/g, "$1");
-      return JSON.parse(cleaned);
-    } catch (e2) { return null; }
-  }
+  try { return JSON.parse(str.slice(start, end + 1)); } catch (e) { return null; }
 }
 
-// 📌 소스/특제 오탐 완벽 수정 및 동적 가이드 사전
 const AD_RULES_DICTIONARY = [
   {
     id: "RULE_INGREDIENT_PERCENT",
-    // 🚨 '특제' 키워드 제거 (원재료 명칭만 포함)
     keywords: ["등심", "통등심", "안심", "찹쌀", "한우", "돼지고기", "삼겹살", "새우", "치즈", "국산", "국내산"],
     exclude_keywords: ["%", "퍼센트", "g", "함유량"],
     level: "HIGH",
     issue: "원재료명 강조 표기 시 함량(%) 누락",
     reason: "상세페이지 카피에서 특정 원재료를 전면에 강조하고 있으나, 배합 비율(%)이 명시되지 않아 식품표시광고법 위반 위험이 있습니다.",
-    // 동적 가이드 생성 함수
     getAction: (text) => {
-      let matchedIng = "원재료";
-      if (text.includes("등심")) matchedIng = "돼지고기(등심)";
-      else if (text.includes("찹쌀")) matchedIng = "찹쌀";
-      else if (text.includes("새우")) matchedIng = "새우";
-      else if (text.includes("한우")) matchedIng = "한우";
-      return `강조된 문구 주변 또는 메인 강조 영역에 '${matchedIng} 00%'와 같이 정확한 함량을 명확히 표기하세요.`;
+      let matched = "원재료";
+      if (text.includes("등심")) matched = "돼지고기(등심)";
+      else if (text.includes("찹쌀")) matched = "찹쌀";
+      else if (text.includes("새우")) matched = "새우";
+      return `강조된 문구 주변 또는 메인 강조 영역에 '${matched} 00%'와 같이 정확한 함량을 명확히 표기하세요.`;
     }
   },
   {
     id: "RULE_BEST_PROOF_REQUIRED",
-    // 🚨 '특제', '특제 소스'를 실증 필요 표현(중)으로 이동
     keywords: ["특제", "특제 소스", "깨끗한", "최상", "최고", "1위", "특허", "시그니처", "가장 많은", "원물 그대로", "풍부한", "노하우", "비법", "전문점의 맛"],
     level: "MEDIUM",
     issue: "객관적 실증이 필요한 최상급/우수성 표현",
@@ -64,9 +51,49 @@ const AD_RULES_DICTIONARY = [
   }
 ];
 
+function processLabelRulesEngine(aiData) {
+  if (!aiData) return null;
+  const category = aiData.category || "FOOD";
+  const label = aiData.label_data || {};
+  const doc = aiData.doc_data || {};
+
+  let passedItems = [];
+  let failedItems = [];
+  let crossCheck = [];
+
+  const foodRules = [
+    { key: "product_name", name: "제품명" }, { key: "food_type", name: "식품유형" },
+    { key: "business_name", name: "영업소 명칭" }, { key: "address", name: "소재지 주소" },
+    { key: "expiration_date", name: "소비기한" }, { key: "net_weight", name: "내용량" },
+    { key: "ingredients", name: "원재료명" }, { key: "nutrition", name: "영양성분" },
+    { key: "package_material", name: "용기포장재질" }, { key: "caution", name: "주의사항" }
+  ];
+
+  foodRules.forEach(rule => {
+    const val = (label[rule.key] || "").trim();
+    if (val && !val.includes("없음") && !val.includes("누락")) {
+      passedItems.push({ name: rule.name, detail: val });
+    } else {
+      failedItems.push({ item_name: rule.name, found_text: "누락", issue_reason: `${rule.name} 항목 누락`, how_to_improve: `${rule.name} 명시 필요` });
+    }
+  });
+
+  const labelAddr = (label.address || "").replace(/\s+/g, "");
+  const docAddr = (doc.address || "").replace(/\s+/g, "");
+  if (docAddr && !docAddr.includes("없음")) {
+    crossCheck.push({ item: "영업소 소재지", status: labelAddr === docAddr ? "match" : "mismatch", label_value: label.address, doc_value: doc.address, note: labelAddr === docAddr ? "일치함" : "주소 불일치" });
+  }
+
+  return {
+    inspect_mode: "LABEL",
+    summary: "가공식품 10대 필수 항목 검수 완료",
+    analyzed_summary: { product_name: aiData.product_name || "판독 완료", food_type: aiData.food_type || "분류 완료" },
+    passed_items: passedItems, failed_items: failedItems, cross_check: crossCheck
+  };
+}
+
 function processAdRulesEngine(aiData) {
   if (!aiData) return null;
-
   const detectedPhrases = aiData.detected_phrases || [];
   let formattedRisks = [];
   let highCount = 0; let mediumCount = 0; let lowCount = 0;
@@ -86,12 +113,12 @@ function processAdRulesEngine(aiData) {
 
         formattedRisks.push({
           level: rule.level,
-          level_kr: rule.level === "HIGH" ? "상 (무조건 수정)" : (rule.level === "MEDIUM" ? "중 (수정 강력 권장)" : "하 (선택 참고)"),
+          level_kr: rule.level === "HIGH" ? "상 (무조건 수정)" : (rule.level === "MEDIUM" ? "중 (수정 권장)" : "하 (참고)"),
           box_2d: box,
           target_text: text,
           issue: rule.issue,
           reason: rule.reason,
-          action: rule.getAction(text) // 동적 가이드 적용
+          action: rule.getAction(text)
         });
       }
     });
@@ -114,7 +141,7 @@ export default {
 
     if (request.method === "POST") {
       try {
-        if (!geminiApiKey) throw new Error("서버 GEMINI_API_KEY가 없습니다.");
+        if (!geminiApiKey) throw new Error("서버 환경 변수(GEMINI_API_KEY)가 설정되지 않았습니다.");
 
         const formData = await request.formData();
         const labelFile = formData.get("image");
@@ -125,31 +152,37 @@ export default {
         const labelBuffer = await labelFile.arrayBuffer();
         const contentsParts = [{ inlineData: { mimeType: labelFile.type || "image/jpeg", data: arrayBufferToBase64(labelBuffer) } }];
 
-        let promptText = `제출된 이미지에서 모든 '홍보성 텍스트 문구'를 추출하고 글자 테두리 정밀 좌표 [ymin, xmin, ymax, xmax] (0~1000 범위)를 반환하세요.
-* ⚠️ 사진/음식 배경을 박스로 치지 말고, 오직 글자 테두리만 좁게 지정할 것!
-
-[JSON 응답 규격]
-{
-  "product_name": "제품명",
-  "detected_category": "분류",
-  "detected_phrases": [ { "text": "추출문구", "box_2d": [ymin, xmin, ymax, xmax] } ]
-}`;
+        let promptText = "";
+        if (inspectMode === "LABEL") {
+          promptText = `한글표시사항 라벨 텍스트를 추출해 JSON으로 응답하세요.
+{"category":"FOOD","product_name":"명","food_type":"유형","label_data":{"product_name":"","food_type":"","business_name":"","address":"","expiration_date":"","net_weight":"","ingredients":"","nutrition":"","package_material":"","caution":""},"doc_data":{"address":""}}`;
+        } else {
+          promptText = `광고 이미지 내의 모든 홍보성 문구와 글자 테두리 좌표 [ymin, xmin, ymax, xmax] (0~1000 정수)를 반환하세요.
+{"product_name":"명","detected_category":"분류","detected_phrases":[{"text":"문구","box_2d":[100,100,200,900]}]}`;
+        }
 
         contentsParts.unshift({ text: promptText });
 
-        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${geminiApiKey}`;
+        // 정식 지원 모델명(gemini-1.5-flash) 적용
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
         const geminiRes = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ contents: [{ parts: contentsParts }], generationConfig: { responseMimeType: "application/json", temperature: 0.0 } })
         });
 
-        if (!geminiRes.ok) throw new Error("Gemini API 호출 실패");
+        if (!geminiRes.ok) {
+          const errDetail = await geminiRes.text();
+          throw new Error(`Gemini API 오류 (${geminiRes.status}): ${errDetail.substring(0, 150)}`);
+        }
+
         const data = await geminiRes.json();
         const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
         const aiExtractedData = parseAIJSON(rawText);
 
-        const finalReport = processAdRulesEngine(aiExtractedData);
+        if (!aiExtractedData) throw new Error("AI 결과 데이터를 해석하지 못했습니다.");
+
+        const finalReport = (inspectMode === "AD") ? processAdRulesEngine(aiExtractedData) : processLabelRulesEngine(aiExtractedData);
         return new Response(JSON.stringify({ success: true, result: finalReport }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
 
       } catch (err) {
