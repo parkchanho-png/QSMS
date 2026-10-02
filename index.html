@@ -55,7 +55,7 @@
     .status-pass { color: #059669; font-weight: bold; }
     .status-fail { color: #dc2626; font-weight: bold; }
 
-    /* 광고 레이아웃 (좌 스티키 이미지 / 우 리스크 카드) */
+    /* 🎯 섹션 포커스 스티키 레이아웃 */
     .summary-box { display: flex; gap: 10px; margin-bottom: 20px; }
     .badge { padding: 8px 15px; border-radius: 20px; font-weight: bold; font-size: 14px; }
     .badge.high { background: #fee2e2; color: var(--high-color); border: 1px solid #fca5a5; }
@@ -63,33 +63,72 @@
     .badge.low { background: #eff6ff; color: var(--low-color); border: 1px solid #bfdbfe; }
 
     .ad-report-container { display: flex; gap: 24px; align-items: flex-start; margin-top: 20px; }
-    .ad-image-pane { flex: 0 0 420px; position: sticky; top: 20px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 10px; padding: 10px; max-height: 85vh; overflow-y: auto; }
+    .ad-image-pane { flex: 0 0 450px; position: sticky; top: 20px; background: #1e293b; border: 2px solid #334155; border-radius: 12px; padding: 10px; max-height: 80vh; overflow-y: auto; scroll-behavior: smooth; }
     .single-img-wrap { position: relative; width: 100%; font-size: 0; }
     .single-img-wrap img { width: 100%; height: auto; display: block; border-radius: 6px; }
 
-    .overlay-box { position: absolute; border: 3px solid #dc2626; box-sizing: border-box; pointer-events: none; border-radius: 4px; z-index: 5; }
-    .box-num-badge { position: absolute; top: -12px; left: -12px; color: white; font-size: 12px; font-weight: bold; padding: 2px 7px; border-radius: 12px; }
+    /* 섹션 포커스 하이라이트 밴드 및 핀 배지 */
+    .section-focus-line {
+      position: absolute;
+      left: 0;
+      width: 100%;
+      height: 60px;
+      margin-top: -30px;
+      background: linear-gradient(90deg, rgba(220,38,38,0.3) 0%, rgba(220,38,38,0.1) 100%);
+      border-top: 2px dashed #dc2626;
+      border-bottom: 2px dashed #dc2626;
+      pointer-events: none;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      padding-left: 10px;
+    }
+    .focus-pin-badge {
+      background: #dc2626;
+      color: white;
+      font-size: 12px;
+      font-weight: bold;
+      padding: 3px 8px;
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    }
 
+    /* 오른쪽 위험도 카드 (클릭 가능 커서 처리) */
     .ad-details-pane { flex: 1; }
-    .risk-card { background: #ffffff; border-radius: 10px; padding: 18px; margin-bottom: 16px; border: 1px solid #e5e7eb; }
-    .risk-card.risk-high { border-left: 6px solid var(--high-color); background: #fff8f8; }
-    .risk-card.risk-medium { border-left: 6px solid var(--medium-color); background: #fffdf5; }
-    .risk-card.risk-low { border-left: 6px solid var(--low-color); background: #f8fafc; }
+    .risk-card {
+      background: #ffffff;
+      border-radius: 10px;
+      padding: 18px;
+      margin-bottom: 16px;
+      border: 1px solid #e5e7eb;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .risk-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(0,0,0,0.08);
+    }
+    .risk-card.active-focus {
+      border-width: 2px;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+    }
+    .risk-card.risk-high { border-left: 6px solid var(--high-color); }
+    .risk-card.risk-medium { border-left: 6px solid var(--medium-color); }
+    .risk-card.risk-low { border-left: 6px solid var(--low-color); }
 
     .item-number-tag { color: white; font-size: 13px; font-weight: bold; padding: 3px 9px; border-radius: 12px; display: inline-block; }
-    .risk-text { font-size: 14px; background: rgba(255,255,255,0.9); padding: 10px; border-radius: 6px; margin: 10px 0; border: 1px dashed #cbd5e1; font-family: monospace; }
+    .risk-text { font-size: 14px; background: rgba(241,245,249,0.8); padding: 10px; border-radius: 6px; margin: 10px 0; border: 1px dashed #cbd5e1; font-family: monospace; }
   </style>
 </head>
 <body>
 
 <div class="container">
   <div class="header">
-    <h1>LabelGuard AI (v10.2)</h1>
+    <h1>LabelGuard AI (v11.0)</h1>
     <p>식약처 고시 라벨 필수항목 & 표시광고법 정밀 검수</p>
   </div>
 
   <div class="card">
-    <!-- 모드 선택 탭 -->
     <div class="mode-selector">
       <button type="button" id="btnModeLabel" class="mode-btn active" onclick="setMode('LABEL')">
         🏷️ 한글표시사항 검수
@@ -99,7 +138,6 @@
       </button>
     </div>
 
-    <!-- 메인 이미지 업로드 드롭존 -->
     <div class="form-group">
       <label id="mainImageLabel">1. 검수할 한글표시사항 라벨 첨부 (필수)</label>
       <div class="drop-zone" id="mainDropZone">
@@ -110,7 +148,6 @@
       </div>
     </div>
 
-    <!-- 증빙서류 드롭존 (라벨 모드 전용) -->
     <div class="form-group" id="docUploadGroup">
       <label>2. 증빙서류 이미지 첨부 (선택: 사업자등록증 등)</label>
       <div class="drop-zone" id="docDropZone">
@@ -124,45 +161,34 @@
     <button type="button" id="submitBtn" class="btn-submit" onclick="uploadAndInspect()">분석 시작하기</button>
   </div>
 
-  <!-- 로딩 영역 -->
   <div class="card" id="loadingArea">
     <div class="spinner"></div>
     <h3 style="margin:0; color:var(--primary);">AI 정밀 판독 중...</h3>
     <p style="color:var(--text-muted); font-size:14px;">구글 서버 상태에 따라 5~15초 정도 소요될 수 있습니다.</p>
   </div>
 
-  <!-- 결과 영역 -->
   <div id="resultArea" style="display: none;"></div>
 </div>
 
 <script>
   let currentMode = "LABEL";
   let uploadedImageSrc = "";
+  let riskDetailsData = [];
 
   window.addEventListener('DOMContentLoaded', () => {
     setupDropZone('mainDropZone', 'imageFile', 'mainFileInfo');
     setupDropZone('docDropZone', 'docFile', 'docFileInfo');
   });
 
-  // 드래그 앤 드롭 방합 완벽 적용 함수
   function setupDropZone(dropZoneId, inputId, infoId) {
     const dropZone = document.getElementById(dropZoneId);
     const input = document.getElementById(inputId);
 
-    // 드롭존 클릭 시 파일 창 열기
     dropZone.addEventListener('click', () => input.click());
+    input.addEventListener('change', () => handleFileChange(input, infoId));
 
-    // 파일 선택 변경 시
-    input.addEventListener('change', () => {
-      handleFileChange(input, infoId);
-    });
-
-    // 드래그 이벤트 완전 차단 및 스타일 제어
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-      dropZone.addEventListener(eventName, (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-      }, false);
+      dropZone.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
     });
 
     ['dragenter', 'dragover'].forEach(eventName => {
@@ -247,9 +273,11 @@
     }
   }
 
-  // 📢 상세페이지 리포트
+  // 📢 [핵심] 섹션 포커스 및 스크롤 줌인 렌더링
   function renderAdReport(result) {
     const rs = result.risk_summary;
+    riskDetailsData = result.risk_details || [];
+
     let html = `
       <div class="card">
         <h2 style="color:var(--primary); margin-top:0;">📢 표시·광고법 정밀 검수 리포트</h2>
@@ -258,39 +286,38 @@
           <span class="badge medium">중(수정 권장): ${rs.medium_count}건</span>
           <span class="badge low">하(선택 참고): ${rs.low_count}건</span>
         </div>
+        <p style="font-size:13px; color:var(--text-muted); margin-bottom:10px;">👉 오른쪽 카드를 클릭하면 해당 위치로 원본 이미지가 부드럽게 자동 스크롤됩니다.</p>
         <hr style="border:0; border-top:1px solid #e5e7eb; margin:15px 0;">
+        
         <div class="ad-report-container">
-          <div class="ad-image-pane">
-            <div class="single-img-wrap">
-              <img src="${uploadedImageSrc}" alt="광고 원본">
+          <!-- 왼쪽: 스티키 원본 이미지 뷰어 -->
+          <div class="ad-image-pane" id="adImagePane">
+            <div class="single-img-wrap" id="singleImgWrap">
+              <img src="${uploadedImageSrc}" id="targetAdImage" alt="광고 원본">
+              <!-- 자동 포커스 하이라이트 밴드 -->
+              <div class="section-focus-line" id="focusLine" style="display:none; top:0%;">
+                <span class="focus-pin-badge" id="focusBadge">#1 위치 포커스</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 오른쪽: 리스크 카드 목록 -->
+          <div class="ad-details-pane">
     `;
 
-    result.risk_details.forEach((item, index) => {
-      const box = item.box_2d || [100, 100, 300, 900];
-      const top = (box[0] / 10).toFixed(1);
-      const left = (box[1] / 10).toFixed(1);
-      const height = ((box[2] - box[0]) / 10).toFixed(1);
-      const width = ((box[3] - box[1]) / 10).toFixed(1);
-      const boxColor = item.level === "HIGH" ? "#dc2626" : (item.level === "MEDIUM" ? "#d97706" : "#2563eb");
-
-      html += `
-        <div class="overlay-box" style="top: ${top}%; left: ${left}%; width: ${width}%; height: ${height}%; border-color: ${boxColor}; background-color: ${item.level === 'HIGH' ? 'rgba(220,38,38,0.15)' : 'rgba(217,119,6,0.15)'};">
-          <span class="box-num-badge" style="background-color: ${boxColor};">#${index + 1}</span>
-        </div>
-      `;
-    });
-
-    html += `</div></div><div class="ad-details-pane">`;
-
-    result.risk_details.forEach((item, index) => {
+    riskDetailsData.forEach((item, index) => {
       const cardClass = item.level === "HIGH" ? "risk-high" : (item.level === "MEDIUM" ? "risk-medium" : "risk-low");
       const tagBg = item.level === "HIGH" ? "var(--high-color)" : (item.level === "MEDIUM" ? "var(--medium-color)" : "var(--low-color)");
+      const yPercent = item.y_percent || 10;
 
       html += `
-        <div class="risk-card ${cardClass}">
-          <div style="display:flex; align-items:center; gap:8px;">
-            <span class="item-number-tag" style="background:${tagBg};">#${index + 1}</span>
-            <strong style="font-size:16px; color:${tagBg}">[${item.level_kr}] ${item.issue}</strong>
+        <div class="risk-card ${cardClass}" id="riskCard_${index}" onclick="focusImageSection(${index}, ${yPercent})">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="item-number-tag" style="background:${tagBg};">#${index + 1}</span>
+              <strong style="font-size:16px; color:${tagBg}">[${item.level_kr}] ${item.issue}</strong>
+            </div>
+            <span style="font-size:12px; color:var(--text-muted); font-weight:bold;">위치: 상단 ${yPercent}% 지점 🎯</span>
           </div>
           <div class="risk-text"><strong>검출 문구:</strong> "${item.target_text}"</div>
           <div style="font-size:14px; color:#334155; margin-bottom:8px;"><strong>단속 사유:</strong> ${item.reason}</div>
@@ -301,6 +328,41 @@
 
     html += `</div></div></div>`;
     document.getElementById("resultArea").innerHTML = html;
+
+    // 첫 번째 카드로 자동 포커스 초기화
+    if (riskDetailsData.length > 0) {
+      setTimeout(() => focusImageSection(0, riskDetailsData[0].y_percent || 10), 300);
+    }
+  }
+
+  // 🎯 카드를 클릭할 때 이미지 스크롤 및 밴드 하이라이트 동적 제어
+  function focusImageSection(index, yPercent) {
+    const pane = document.getElementById('adImagePane');
+    const img = document.getElementById('targetAdImage');
+    const focusLine = document.getElementById('focusLine');
+    const focusBadge = document.getElementById('focusBadge');
+
+    if (!img || !pane) return;
+
+    // active 카드시각화
+    document.querySelectorAll('.risk-card').forEach(c => c.classList.remove('active-focus'));
+    const activeCard = document.getElementById(`riskCard_${index}`);
+    if (activeCard) activeCard.classList.add('active-focus');
+
+    // 높이 스크롤 위치 계산
+    const imgHeight = img.clientHeight;
+    const targetScrollY = (imgHeight * (yPercent / 100)) - (pane.clientHeight / 2);
+
+    pane.scrollTo({ top: Math.max(0, targetScrollY), behavior: 'smooth' });
+
+    // 포커스 밴드 위치 설정
+    focusLine.style.display = 'flex';
+    focusLine.style.top = `${yPercent}%`;
+    focusBadge.innerText = `#${index + 1} 위치 영역`;
+    
+    // 포커스시 반짝이는 애니메이션 효과
+    focusLine.style.opacity = '1';
+    setTimeout(() => { focusLine.style.opacity = '0.75'; }, 300);
   }
 
   // 🏷️ 한글표시사항 리포트
