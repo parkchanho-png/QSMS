@@ -3,250 +3,271 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LabelGuard AI - 제미나이 네이티브 v3.2.0</title>
+  <title>LabelGuard AI - 표시광고 및 라벨 정밀 검수</title>
   <style>
     :root {
-      --primary: #2563eb; --primary-hover: #1d4ed8; --bg: #f8fafc; --card-bg: #ffffff;
-      --text: #0f172a; --border: #cbd5e1; --danger: #dc2626; --danger-bg: #fef2f2;
-      --success: #16a34a; --warning: #d97706; --info-bg: #eff6ff;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --bg-color: #f3f4f6;
+      --card-bg: #ffffff;
+      --border: #e5e7eb;
+      --text-main: #1f2937;
+      --text-muted: #6b7280;
+      --high-color: #d9381e;
+      --medium-color: #d97706;
+      --low-color: #2563eb;
     }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 24px 16px; }
-    .container { max-width: 1200px; margin: 0 auto; }
-    .header { text-align: center; margin-bottom: 24px; }
-    .header h1 { font-size: 2.2rem; color: var(--primary); margin: 0 0 8px 0; display: flex; align-items: center; justify-content: center; gap: 10px; }
-    .version-badge { font-size: 0.85rem; background-color: #16a34a; color: white; padding: 3px 10px; border-radius: 20px; font-weight: 600; }
-    .card { background: var(--card-bg); border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); border: 1px solid var(--border); margin-bottom: 24px; }
-    .upload-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
-    @media (max-width: 640px) { .upload-grid { grid-template-columns: 1fr; } }
-    .upload-box { border: 2px dashed #94a3b8; border-radius: 12px; padding: 24px; text-align: center; background: #f8fafc; cursor: pointer; transition: all 0.2s ease; min-height: 150px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-    .upload-box:hover, .upload-box.dragover { border-color: var(--primary); background: #eff6ff; }
-    .upload-icon { font-size: 2.2rem; margin-bottom: 8px; }
-    .upload-title { font-size: 1.05rem; font-weight: bold; color: #334155; margin-bottom: 4px; }
-    .upload-sub { font-size: 0.85rem; color: #64748b; margin-bottom: 8px; }
-    .file-name-tag { font-size: 0.85rem; font-weight: bold; color: var(--primary); word-break: break-all; }
-    input[type="file"] { display: none; }
-    .btn { width: 100%; background: var(--primary); color: white; border: none; padding: 14px; font-size: 1.1rem; font-weight: bold; border-radius: 8px; cursor: pointer; transition: background 0.2s; }
-    .btn:hover { background: var(--primary-hover); }
-    .loading { display: none; text-align: center; padding: 24px; font-size: 1.1rem; font-weight: bold; color: var(--primary); }
-    .result-split-view { display: none; grid-template-columns: 1fr 1.2fr; gap: 20px; align-items: start; }
-    @media (max-width: 900px) { .result-split-view { grid-template-columns: 1fr; } }
-    .image-pane { position: sticky; top: 20px; }
-    .img-wrapper { position: relative; width: 100%; border-radius: 8px; overflow: hidden; border: 1px solid var(--border); background: #0f172a; display: flex; align-items: center; justify-content: center; min-height: 350px; }
-    .img-wrapper img { width: 100%; height: auto; display: block; }
-    .summary-box { background: var(--info-bg); border-left: 5px solid var(--primary); padding: 14px; border-radius: 6px; margin-bottom: 16px; font-weight: 600; }
-    .overview-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
-    .overview-item { background: #f8fafc; border: 1px solid var(--border); padding: 10px; border-radius: 6px; text-align: center; }
-    .overview-item span { display: block; font-size: 0.8rem; color: #64748b; }
-    .overview-item strong { font-size: 1rem; color: var(--text); }
-    .badge { display: inline-block; padding: 3px 8px; border-radius: 12px; font-size: 0.8rem; font-weight: bold; }
-    .badge-pass { background: #dcfce7; color: #166534; }
-    .badge-opt { background: #f8fafc; color: #475569; border: 1px solid #cbd5e1; }
-    .badge-fail { background: #fee2e2; color: #991b1b; }
-    .fail-card { background: var(--danger-bg); border: 1px solid #fca5a5; border-radius: 8px; padding: 14px; margin-bottom: 12px; }
-    .fail-title { font-weight: bold; color: var(--danger); margin-bottom: 6px; }
-    .improve-box { background: #ffffff; border: 1px dashed #2563eb; padding: 10px; border-radius: 6px; margin-top: 8px; color: #1e3a8a; font-size: 0.9rem; }
-    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-    th, td { border: 1px solid var(--border); padding: 8px; text-align: left; font-size: 0.88rem; word-break: break-word; }
-    th { background: #f1f5f9; }
+    body { font-family: 'Pretendard', -apple-system, sans-serif; background-color: var(--bg-color); color: var(--text-main); margin: 0; padding: 20px; line-height: 1.5; }
+    .container { max-width: 900px; margin: 0 auto; }
+    .header { text-align: center; margin-bottom: 30px; }
+    .header h1 { margin: 0; color: var(--primary); font-size: 28px; }
+    .header p { color: var(--text-muted); margin-top: 5px; }
+    
+    .card { background: var(--card-bg); border-radius: 12px; padding: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid var(--border); }
+    
+    /* 모드 선택 탭 */
+    .mode-selector { display: flex; gap: 10px; margin-bottom: 20px; }
+    .mode-btn { flex: 1; padding: 15px; border: 2px solid var(--border); background: #f9fafb; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; color: var(--text-muted); transition: all 0.2s; }
+    .mode-btn.active { border-color: var(--primary); background: #eff6ff; color: var(--primary); }
+    .mode-btn:hover { background: #f3f4f6; }
+    
+    /* 폼 요소 */
+    .form-group { margin-bottom: 20px; }
+    .form-group label { display: block; font-weight: bold; margin-bottom: 8px; }
+    .form-group input[type="file"] { display: block; width: 100%; padding: 10px; border: 1px dashed var(--border); border-radius: 6px; background: #fafafa; }
+    .btn-submit { display: block; width: 100%; padding: 15px; background: var(--primary); color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+    .btn-submit:hover { background: var(--primary-hover); }
+    .btn-submit:disabled { background: #9ca3af; cursor: not-allowed; }
+
+    /* 로딩 인디케이터 */
+    #loadingArea { text-align: center; padding: 40px; display: none; }
+    .spinner { border: 4px solid #f3f3f3; border-top: 4px solid var(--primary); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px auto; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    /* 테이블 스타일 (라벨 모드용) */
+    table { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 25px; font-size: 14px; }
+    th, td { border: 1px solid var(--border); padding: 12px; text-align: left; }
+    th { background-color: #f9fafb; font-weight: bold; }
+    .status-pass { color: #059669; font-weight: bold; }
+    .status-fail { color: #dc2626; font-weight: bold; }
+
+    /* 위험도 카드 (광고 모드용) */
+    .summary-box { display: flex; gap: 10px; margin-bottom: 20px; }
+    .badge { padding: 8px 15px; border-radius: 20px; font-weight: bold; font-size: 14px; }
+    .badge.high { background: #ffeded; color: var(--high-color); border: 1px solid #fca5a5; }
+    .badge.medium { background: #fff9e6; color: var(--medium-color); border: 1px solid #fcd34d; }
+    .badge.low { background: #eff6ff; color: var(--low-color); border: 1px solid #bfdbfe; }
+    
+    .risk-card { background: #ffffff; border-radius: 8px; padding: 18px; margin-bottom: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+    .risk-high { border-left: 5px solid var(--high-color); background: #fff5f5; }
+    .risk-medium { border-left: 5px solid var(--medium-color); background: #fffbeb; }
+    .risk-low { border-left: 5px solid var(--low-color); background: #f0fdf4; }
+    
+    .risk-title { font-weight: bold; font-size: 16px; margin-bottom: 8px; }
+    .risk-text { font-size: 14px; background: rgba(255,255,255,0.7); padding: 8px; border-radius: 4px; margin-bottom: 8px; border: 1px dashed #ccc; }
+    .risk-desc { font-size: 14px; color: #4b5563; margin-bottom: 8px; }
+    .risk-action { font-size: 14px; color: var(--primary); font-weight: bold; }
   </style>
 </head>
 <body>
 
 <div class="container">
   <div class="header">
-    <h1>🛡️ LabelGuard AI <span class="version-badge">v3.2.0</span></h1>
-    <p>구글 제미나이 Vision AI 네이티브 법령 정밀 관제 시스템</p>
+    <h1>LabelGuard AI (v7.0)</h1>
+    <p>식약처 고시 표시사항 및 표시광고법 정밀 검수 시스템</p>
   </div>
 
   <div class="card">
-    <div class="upload-grid">
-      <div class="upload-box" id="dropZoneLabel" onclick="document.getElementById('labelInput').click()">
-        <div class="upload-icon">🏷️</div>
-        <div class="upload-title">1. 라벨 / 광고 이미지 (필수)</div>
-        <div class="upload-sub">클릭하거나 이미지를 끌어다 놓으세요</div>
-        <div class="file-name-tag" id="labelFileName">선택된 파일 없음</div>
-        <input type="file" id="labelInput" accept="image/*">
-      </div>
-      <div class="upload-box" id="dropZoneDoc" onclick="document.getElementById('docInput').click()">
-        <div class="upload-icon">📑</div>
-        <div class="upload-title">2. 증빙 서류 (선택)</div>
-        <div class="upload-sub">사업자등록증, 품목제조보고서 등</div>
-        <div class="file-name-tag" id="docFileName">선택된 파일 없음</div>
-        <input type="file" id="docInput" accept="image/*">
-      </div>
-    </div>
-    <button class="btn" onclick="analyzeData()">원본 이미지 고해상도 검수 시작</button>
-  </div>
-
-  <div class="loading" id="loading">
-    <span id="loadingMsg">✨ 구글 제미나이 Vision AI가 원본 이미지를 정밀 분석 중입니다...</span>
-  </div>
-
-  <div class="result-split-view" id="resultSplitView">
-    <div class="image-pane">
-      <div class="card">
-        <h3 style="margin-top:0; font-size:1.05rem;">📷 분석된 원본 라벨 이미지</h3>
-        <div class="img-wrapper">
-          <img id="previewImg" src="" alt="라벨 이미지 미리보기">
-        </div>
-      </div>
+    <!-- 모드 선택 탭 -->
+    <div class="mode-selector">
+      <button type="button" id="btnModeLabel" class="mode-btn active" onclick="setMode('LABEL')">
+        🏷️ 한글표시사항 검수
+      </button>
+      <button type="button" id="btnModeAd" class="mode-btn" onclick="setMode('AD')">
+        📢 상세페이지/광고 검수
+      </button>
     </div>
 
-    <div class="report-pane">
-      <div class="card">
-        <h2 style="margin-top:0; font-size:1.3rem;">📋 식약처 고시 정밀 검수 리포트</h2>
-        <div class="summary-box" id="summaryText"></div>
-
-        <h3>🔍 1. 분석 개요 (식품공전 표준 매핑)</h3>
-        <div class="overview-grid">
-          <div class="overview-item">
-            <span>인식 제품명</span>
-            <strong id="infoProduct" style="color:var(--primary);">-</strong>
-          </div>
-          <div class="overview-item">
-            <span>식약처 공식 식품유형</span>
-            <strong id="infoType" style="color:var(--primary);">-</strong>
-          </div>
-          <div class="overview-item">
-            <span>검토 항목 수</span>
-            <strong id="infoCount">-</strong>
-          </div>
-        </div>
-
-        <h3>✅ 2. 법정 필수 표시항목 (적합)</h3>
-        <table id="passTable">
-          <thead>
-            <tr><th style="width:25%;">필수 항목명</th><th style="width:15%;">상태</th><th>식약처 관련 법령 및 적합 근거 사유</th></tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-
-        <h3 style="margin-top: 20px;">ℹ️ 3. 별도 표기 항목 (선택/추가 표시사항)</h3>
-        <table id="optionalTable">
-          <thead>
-            <tr><th style="width:25%;">추가 항목명</th><th style="width:15%;">분류</th><th>기재 내용 및 목적</th></tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-
-        <h3 style="margin-top: 20px; color: var(--danger);">🚨 4. 위반 및 필수사항 누락 항목</h3>
-        <div id="failListArea"></div>
-
-        <h3 style="margin-top: 20px;">📑 5. 증빙서류 교차 대조 (Cross-Check)</h3>
-        <table id="crossTable">
-          <thead>
-            <tr><th>대조 항목</th><th>상태</th><th>라벨 표기</th><th>증빙서류 기재내용</th><th>비고/지침</th></tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
+    <!-- 파일 업로드 폼 -->
+    <div class="form-group">
+      <label id="mainImageLabel">1. 검수할 이미지 첨부 (필수)</label>
+      <input type="file" id="imageFile" accept="image/*">
     </div>
+    <div class="form-group" id="docUploadGroup">
+      <label>2. 증빙서류 이미지 첨부 (선택: 사업자등록증 등)</label>
+      <input type="file" id="docFile" accept="image/*">
+    </div>
+
+    <button type="button" id="submitBtn" class="btn-submit" onclick="uploadAndInspect()">분석 시작하기</button>
   </div>
+
+  <!-- 로딩 영역 -->
+  <div class="card" id="loadingArea">
+    <div class="spinner"></div>
+    <h3 style="margin:0; color:var(--primary);">AI 정밀 판독 중...</h3>
+    <p style="color:var(--text-muted); font-size:14px;">구글 서버 상태에 따라 5~15초 정도 소요될 수 있습니다.<br>(503 과부하 발생 시 자동 재시도 중입니다)</p>
+  </div>
+
+  <!-- 결과 출력 영역 -->
+  <div id="resultArea" style="display: none;"></div>
 </div>
 
 <script>
-  function setupDropZone(zoneId, inputId, labelId) {
-    const zone = document.getElementById(zoneId); const input = document.getElementById(inputId);
-    zone.addEventListener("dragover", (e) => { e.preventDefault(); zone.classList.add("dragover"); });
-    zone.addEventListener("dragleave", () => zone.classList.remove("dragover"));
-    zone.addEventListener("drop", (e) => { e.preventDefault(); zone.classList.remove("dragover"); if (e.dataTransfer.files && e.dataTransfer.files.length > 0) { input.files = e.dataTransfer.files; updateFileName(inputId, labelId); previewImages(); } });
-    input.addEventListener("change", () => { updateFileName(inputId, labelId); previewImages(); });
+  let currentMode = "LABEL"; // 초기 모드: 라벨 검수
+
+  // 모드 변경 함수
+  function setMode(mode) {
+    currentMode = mode;
+    document.getElementById("btnModeLabel").classList.toggle("active", mode === "LABEL");
+    document.getElementById("btnModeAd").classList.toggle("active", mode === "AD");
+    
+    // UI 텍스트 동적 변경
+    const docGroup = document.getElementById("docUploadGroup");
+    const mainLabel = document.getElementById("mainImageLabel");
+    if(mode === "AD") {
+      docGroup.style.display = "none";
+      mainLabel.innerText = "1. 검수할 광고/상세페이지 이미지 첨부 (필수)";
+    } else {
+      docGroup.style.display = "block";
+      mainLabel.innerText = "1. 검수할 한글표시사항 라벨 첨부 (필수)";
+    }
+    // 결과창 초기화
+    document.getElementById("resultArea").style.display = "none";
   }
 
-  function updateFileName(inputId, labelId) {
-    const file = document.getElementById(inputId).files[0]; const label = document.getElementById(labelId);
-    label.innerText = file ? "📄 " + file.name : "선택된 파일 없음";
-  }
+  // 서버 전송 및 검수 실행
+  async function uploadAndInspect() {
+    const imageInput = document.getElementById('imageFile');
+    const docInput = document.getElementById('docFile');
+    const submitBtn = document.getElementById('submitBtn');
+    const loadingArea = document.getElementById('loadingArea');
+    const resultArea = document.getElementById('resultArea');
 
-  setupDropZone("dropZoneLabel", "labelInput", "labelFileName"); setupDropZone("dropZoneDoc", "docInput", "docFileName");
+    if (!imageInput.files[0]) {
+      alert("검수할 메인 이미지를 첨부해주세요.");
+      return;
+    }
 
-  function previewImages() {
-    const labelFile = document.getElementById("labelInput").files[0];
-    if (labelFile) { const reader = new FileReader(); reader.onload = function(e) { document.getElementById("previewImg").src = e.target.result; }; reader.readAsDataURL(labelFile); }
-  }
+    const formData = new FormData();
+    formData.append("image", imageInput.files[0]);
+    if (docInput.files[0] && currentMode === "LABEL") {
+      formData.append("doc", docInput.files[0]);
+    }
+    // 🚨 핵심: 백엔드로 현재 모드를 전달
+    formData.append("mode", currentMode);
 
-  async function analyzeData() {
-    const labelFile = document.getElementById("labelInput").files[0];
-    const docFile = document.getElementById("docInput").files[0];
-    if (!labelFile) return alert("라벨 이미지를 먼저 등록해 주세요.");
-    previewImages();
-
-    const loading = document.getElementById("loading"); loading.style.display = "block";
-    document.getElementById("resultSplitView").style.display = "none";
+    submitBtn.disabled = true;
+    submitBtn.innerText = "검수 진행 중...";
+    resultArea.style.display = "none";
+    loadingArea.style.display = "block";
 
     try {
-      const formData = new FormData();
-      formData.append("image", labelFile); if (docFile) formData.append("doc", docFile);
+      // ⚠️ Cloudflare Worker 백엔드 주소 (본인 주소 확인)
+      const response = await fetch("https://qsms.park-chanho.workers.dev", {
+        method: "POST",
+        body: formData
+      });
 
-      const response = await fetch("https://qsms.park-chanho.workers.dev", { method: "POST", body: formData });
       const data = await response.json();
-      loading.style.display = "none";
+      
+      if (!data.success) {
+        throw new Error(data.error || "분석 중 알 수 없는 오류가 발생했습니다.");
+      }
 
-      if (!data.success) return alert("분석 실패: " + data.error);
-      renderResult(data.result);
+      // 모드에 따라 렌더링 분기
+      if (data.result.inspect_mode === "AD") {
+        renderAdReport(data.result);
+      } else {
+        renderLabelReport(data.result);
+      }
+      
+      resultArea.style.display = "block";
     } catch (err) {
-      loading.style.display = "none"; alert("분석 오류 발생: " + err.message);
+      alert("분석 실패:\n" + err.message);
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.innerText = "분석 시작하기";
+      loadingArea.style.display = "none";
     }
   }
 
-  function renderResult(res) {
-    if (typeof res === "string") { try { res = JSON.parse(res); } catch (e) {} }
-    document.getElementById("resultSplitView").style.display = "grid";
-    document.getElementById("summaryText").innerText = res.summary || "검수가 완료되었습니다.";
+  // 🅰️ [모드 1] 상세페이지 광고 위험도 리포트 렌더링
+  function renderAdReport(result) {
+    const rs = result.risk_summary;
+    let html = `
+      <div class="card">
+        <h2 style="color:var(--primary); margin-top:0;">📢 표시·광고법 정밀 검수 리포트</h2>
+        <p style="margin-bottom:20px;"><strong>판독 분류:</strong> ${result.product_info.detected_category}</p>
+        
+        <div class="summary-box">
+          <span class="badge high">상(무조건 수정): ${rs.high_count}건</span>
+          <span class="badge medium">중(수정 권장): ${rs.medium_count}건</span>
+          <span class="badge low">하(선택 참고): ${rs.low_count}건</span>
+        </div>
+        <hr style="border:0; border-top:1px solid var(--border); margin:20px 0;">
+    `;
 
-    const summaryInfo = res.analyzed_summary || {};
-    document.getElementById("infoProduct").innerText = summaryInfo.product_name || "식별 완료";
-    document.getElementById("infoType").innerText = summaryInfo.food_type || "분류 완료";
-    document.getElementById("infoCount").innerText = (summaryInfo.detected_items_count || 0) + "개 항목";
-
-    const passTbody = document.querySelector("#passTable tbody"); passTbody.innerHTML = "";
-    if (res.passed_items && res.passed_items.length > 0) {
-      res.passed_items.forEach(item => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `<td><strong>${item.name || '-'}</strong></td><td><span class="badge badge-pass">적합</span></td><td>${item.detail || '식약처 표기 기준에 맞게 올바르게 작성되었습니다.'}</td>`;
-        passTbody.appendChild(tr);
-      });
-    } else { passTbody.innerHTML = "<tr><td colspan='3'>적합 항목 정보가 없습니다.</td></tr>"; }
-
-    const optTbody = document.querySelector("#optionalTable tbody"); optTbody.innerHTML = "";
-    if (res.optional_items && res.optional_items.length > 0) {
-      res.optional_items.forEach(item => {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `<td><strong>${item.name || '-'}</strong></td><td><span class="badge badge-opt">선택 표기</span></td><td>${item.detail || '자율 추가 표기 항목'}</td>`;
-        optTbody.appendChild(tr);
-      });
-    } else { optTbody.innerHTML = "<tr><td colspan='3'>추가 선택 표기 항목이 없습니다.</td></tr>"; }
-
-    const failListArea = document.getElementById("failListArea"); failListArea.innerHTML = "";
-    if (res.failed_items && res.failed_items.length > 0) {
-      res.failed_items.forEach(fail => {
-        const div = document.createElement("div"); div.className = "fail-card";
-        div.innerHTML = `
-          <div class="fail-title">⚠️ [위반/누락] ${fail.item_name || '표시사항 점검'}</div>
-          <div><strong>검출 문구:</strong> <span style="color:var(--danger);">${fail.found_text || '표기 없음'}</span></div>
-          <div style="margin-top:4px;"><strong>위반/누락 원인:</strong> ${fail.issue_reason || '-'}</div>
-          <div style="margin-top:4px; font-size:0.85rem; color:#64748b;"><strong>관련 법령:</strong> ${fail.law || '식품등의 표시기준'}</div>
-          <div class="improve-box"><strong>🛠️ 조치 방향:</strong><br>${fail.how_to_improve || '식약처 고시 규격에 맞게 기재사항을 수정하세요.'}</div>
-        `;
-        failListArea.appendChild(div);
-      });
+    if (result.risk_details.length === 0) {
+      html += `<p style="color:#059669; font-weight:bold;">🎉 검출된 위험 요소가 없습니다. 안전한 광고입니다.</p>`;
     } else {
-      failListArea.innerHTML = "<div style='padding:14px; background:#f0fdf4; color:#166534; border-radius:8px; font-weight:bold;'>🎉 해당 식품유형의 필수 기재사항 누락이나 위반사항이 감지되지 않았습니다.</div>";
-    }
-
-    const crossTbody = document.querySelector("#crossTable tbody"); crossTbody.innerHTML = "";
-    if (res.cross_check && res.cross_check.length > 0) {
-      res.cross_check.forEach(item => {
-        const tr = document.createElement("tr");
-        const isMatch = item.status === "match" || item.status === "pass" || item.status === "일치";
-        const statusBadge = isMatch ? '<span class="badge badge-pass">일치</span>' : '<span class="badge badge-fail">불일치</span>';
-        const noteText = (item.note && (item.note.includes("자료확인불가") || item.note.includes("누락") || item.note.includes("불일치"))) ? `<strong style="color:var(--danger);">${item.note}</strong>` : (item.note || '-');
-        tr.innerHTML = `<td>${item.item || '-'}</td><td>${statusBadge}</td><td>${item.label_value || '-'}</td><td>${item.doc_value || '-'}</td><td>${noteText}</td>`;
-        crossTbody.appendChild(tr);
+      result.risk_details.forEach(item => {
+        let cardClass = item.level === "HIGH" ? "risk-high" : (item.level === "MEDIUM" ? "risk-medium" : "risk-low");
+        let titleColor = item.level === "HIGH" ? "var(--high-color)" : (item.level === "MEDIUM" ? "var(--medium-color)" : "var(--low-color)");
+        
+        html += `
+          <div class="risk-card ${cardClass}">
+            <div class="risk-title" style="color: ${titleColor};">[${item.level_kr}] ${item.issue}</div>
+            <div class="risk-text"><strong>검출 원문:</strong> "${item.target_text}"</div>
+            <div class="risk-desc"><strong>단속 사유:</strong> ${item.reason}</div>
+            <div class="risk-action">👉 <strong>조치 가이드:</strong> ${item.action}</div>
+          </div>
+        `;
       });
-    } else { crossTbody.innerHTML = "<tr><td colspan='5'>제출된 증빙 서류가 없거나 대조 항목이 없습니다.</td></tr>"; }
+    }
+    html += `</div>`;
+    document.getElementById("resultArea").innerHTML = html;
+  }
+
+  // 🅱️ [모드 2] 기존 한글표시사항 10대/5대 항목 렌더링
+  function renderLabelReport(result) {
+    let html = `
+      <div class="card">
+        <h2 style="color:var(--primary); margin-top:0;">🏷️ 한글표시사항 정밀 검수 리포트</h2>
+        <p><strong>총평:</strong> ${result.summary}</p>
+        <p><strong>판독된 제품명:</strong> ${result.analyzed_summary.product_name} / <strong>식품유형:</strong> ${result.analyzed_summary.food_type}</p>
+        
+        <h3 style="margin-top:30px;">✅ 1. 법정 필수 표시항목 (적합)</h3>
+        <table>
+          <thead><tr><th width="30%">필수 항목명</th><th width="15%">상태</th><th>식별된 내용</th></tr></thead>
+          <tbody>
+    `;
+    
+    if (result.passed_items.length === 0) html += `<tr><td colspan="3" style="text-align:center;">적합 항목 없음</td></tr>`;
+    result.passed_items.forEach(item => {
+      html += `<tr><td>${item.name}</td><td class="status-pass">적합</td><td>${item.detail}</td></tr>`;
+    });
+    html += `</tbody></table>`;
+
+    html += `<h3>🚨 2. 필수항목 위반 및 누락</h3><table><thead><tr><th width="20%">항목명</th><th width="30%">위반 사유</th><th>조치 가이드</th></tr></thead><tbody>`;
+    if (result.failed_items.length === 0) html += `<tr><td colspan="3" style="text-align:center; color:#059669; font-weight:bold;">위반 및 누락 항목이 없습니다.</td></tr>`;
+    result.failed_items.forEach(item => {
+      html += `<tr><td class="status-fail">${item.item_name}</td><td>${item.issue_reason}</td><td>${item.how_to_improve}</td></tr>`;
+    });
+    html += `</tbody></table>`;
+
+    if (result.cross_check.length > 0) {
+      html += `<h3>🔍 3. 증빙서류 교차 대조 (Cross-Check)</h3><table><thead><tr><th width="20%">대조 항목</th><th width="15%">상태</th><th width="25%">라벨 표기값</th><th width="25%">증빙서류 값</th><th>비고</th></tr></thead><tbody>`;
+      result.cross_check.forEach(item => {
+        const statusClass = item.status === "match" ? "status-pass" : "status-fail";
+        const statusText = item.status === "match" ? "일치" : "불일치";
+        html += `<tr><td>${item.item}</td><td class="${statusClass}">${statusText}</td><td>${item.label_value}</td><td>${item.doc_value}</td><td>${item.note}</td></tr>`;
+      });
+      html += `</tbody></table>`;
+    }
+    
+    html += `</div>`;
+    document.getElementById("resultArea").innerHTML = html;
   }
 </script>
-
 </body>
 </html>
