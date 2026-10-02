@@ -17,45 +17,31 @@ function parseAIJSON(raw) {
   try { return JSON.parse(str.slice(start, end + 1)); } catch (e) { return null; }
 }
 
-// 📌 국가법령 실시간 수집 함수 (타임아웃 4초 확대 및 구체적 에러 로그 표기)
+// 📌 국가법령 실시간 수집 (CDATA 및 명칭 파싱 보정)
 async function fetchLatestLawInfo(lawApiKey) {
-  if (!lawApiKey) {
-    return "[기본 모드] 식약처 고시 『식품등의 표시기준』 (Cloudflare에 LAW_API_KEY 환경변수 미설정)";
-  }
-  
+  if (!lawApiKey) return "[기본 모드] 식약처 고시 『식품등의 표시기준』 적용 (LAW_API_KEY 미설정)";
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000); // 타임아웃 2초 -> 4초로 확대
-
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
     const lawUrl = `https://www.law.go.kr/DRF/lawSearch.do?OC=${lawApiKey}&target=admrul&query=${encodeURIComponent("식품등의 표시기준")}&type=XML`;
     const res = await fetch(lawUrl, { signal: controller.signal });
     clearTimeout(timeoutId);
 
-    if (!res.ok) return `[기본 모드] 법령 서버 응답 에러 (상태코드: ${res.status})`;
-
-    const xmlText = await res.text();
-
-    // API 키 오류 또는 응답 실패 메시지 확인
-    if (xmlText.includes("<result>") && xmlText.includes("오류")) {
-      const errMatch = xmlText.match(/<message>(.*?)<\/message>/) || xmlText.match(/<result>(.*?)<\/result>/);
-      return `[기본 모드] 법령 API 키 오류: ${errMatch ? errMatch[1] : "인증 실패"}`;
-    }
+    if (!res.ok) return "[기본 모드] 법령 서버 응답 지연";
+    let xmlText = await res.text();
+    xmlText = xmlText.replace(/<!\[CDATA\[\vert{}\]\]>/g, ""); // CDATA 태그 제거
 
     const titleMatch = xmlText.match(/<행정규칙명>(.*?)<\/행정규칙명>/) || xmlText.match(/<법령명>(.*?)<\/법령명>/);
     const dateMatch = xmlText.match(/<시행일자>(.*?)<\/시행일자>/);
     const numMatch = xmlText.match(/<발령번호>(.*?)<\/발령번호>/);
 
-    const title = titleMatch ? titleMatch[1] : "식품등의 표시기준";
-    const date = dateMatch ? dateMatch[1] : "최신";
-    const num = numMatch ? numMatch[1] : "";
+    const title = titleMatch ? titleMatch[1].trim() : "식품등의 표시기준";
+    const date = dateMatch ? dateMatch[1].trim() : "최신";
+    const num = numMatch ? numMatch[1].trim() : "";
 
-    return `[국가법령정보센터 실시간 동기화 완료] 식약처 고시 『${title}』 (시행일자: ${date}${num ? `, 제${num}호` : ''})`;
-
+    return `[국가법령정보센터 실시간 동기화] 식약처 고시 『${title}』 (시행일자: ${date}${num ? `, 제${num}호` : ''})`;
   } catch (e) {
-    if (e.name === 'AbortError') {
-      return "[기본 모드] 국가법령 서버 응답 지연 (4초 시간 초과)";
-    }
-    return `[기본 모드] 법령 동기화 실패 (${e.message})`;
+    return "[기본 모드] 식약처 고시 『식품등의 표시기준』 적용";
   }
 }
 
@@ -175,13 +161,12 @@ export default {
 
     if (request.method === "POST") {
       try {
-        if (!geminiApiKey) throw new Error("서버 환경 변수(GEMINI_API_KEY)가 설정되지 않았습니다.");
+        if (!geminiApiKey) throw new Error("서버 GEMINI_API_KEY가 설정되지 않았습니다.");
 
         const formData = await request.formData();
         const inspectMode = (formData.get("mode") || "LABEL").toUpperCase();
-        
-        // 🚨 핵심 수정: 캔버스 에러 방지용 기본 통이미지 무조건 확보
         const labelFile = formData.get("image");
+
         if (!labelFile) throw new Error("분석할 이미지가 전송되지 않았습니다.");
         const labelBuffer = await labelFile.arrayBuffer();
 
@@ -189,24 +174,24 @@ export default {
         let contentsParts = [];
 
         if (inspectMode === "AD") {
-          let hasBlocks = false;
-          let promptText = `전달된 이미지 조각(1번: 상단, 2번: 중상단, 3번: 중단, 4번: 중하단, 5번: 하단)을 검수하세요.\n기준: ${lawHeaderStr}\n각 홍보성 문구가 몇 번 조각 이미지에서 읽혔는지 block_index(1~5 정수)를 지정하세요. [응답 규격] {"product_name":"명","detected_category":"분류","detected_phrases":[{"text":"문구","block_index": 1}]}`;
+          // 🚨 전수 추출 강제 프롬프트
+          let promptText = `상세페이지 이미지 전체를 식약처 표시광고법 기준으로 정밀 검수하세요.
+기준: ${lawHeaderStr}
+
+[🚨 필수 지침]
+- 헤더 카피, 메인 카피, 원재료 관련 홍보 문구("등심", "통등심", "새우" 등), 소스 설명 문구, 하단 조리예/연출 문구를 빠짐없이 전부 추출하세요.
+- 각 문구가 이미지 상단에서부터 위치한 영역을 block_index(1~5 정수)로 지정하세요.
+  * 1: 상단 (0~20% 영역)
+  * 2: 중상단 (20~40% 영역)
+  * 3: 중단 (40~60% 영역)
+  * 4: 중하단 (60~80% 영역)
+  * 5: 하단 (80~100% 영역)
+
+[응답 JSON 규격]
+{"product_name":"제품명","detected_category":"분류","detected_phrases":[{"text":"추출 문구","block_index": 1}]}`;
+
           contentsParts.push({ text: promptText });
-
-          for (let i = 0; i < 5; i++) {
-            const b64 = formData.get(`block_${i}`);
-            if (b64) {
-              hasBlocks = true;
-              contentsParts.push({ text: `=== [블록 ${i + 1}번] ===` });
-              contentsParts.push({ inlineData: { mimeType: "image/jpeg", data: b64 } });
-            }
-          }
-
-          if (!hasBlocks) {
-            // 브라우저 캔버스 쪼개기 실패 시 원본 이미지로 진행 (Fallback)
-            contentsParts.push({ text: "이미지 조각 분할 실패. 제공된 원본 통이미지를 5등분으로 가상 분할하여 block_index를 추정하세요." });
-            contentsParts.push({ inlineData: { mimeType: labelFile.type || "image/jpeg", data: arrayBufferToBase64(labelBuffer) } });
-          }
+          contentsParts.push({ inlineData: { mimeType: labelFile.type || "image/jpeg", data: arrayBufferToBase64(labelBuffer) } });
         } else {
           contentsParts.push({ text: `한글표시사항 라벨 텍스트를 추출해 JSON으로 응답하세요.\n기준: ${lawHeaderStr}\n{"category":"FOOD","product_name":"명","food_type":"유형","label_data":{"product_name":"","food_type":"","business_name":"","address":"","expiration_date":"","net_weight":"","ingredients":"","nutrition":"","package_material":"","caution":""},"doc_data":{"address":""}}` });
           contentsParts.push({ inlineData: { mimeType: labelFile.type || "image/jpeg", data: arrayBufferToBase64(labelBuffer) } });
