@@ -18,7 +18,7 @@
       --low-color: #2563eb;
     }
     body { font-family: 'Pretendard', -apple-system, sans-serif; background-color: var(--bg-color); color: var(--text-main); margin: 0; padding: 20px; line-height: 1.5; }
-    .container { max-width: 1100px; margin: 0 auto; }
+    .container { max-width: 1200px; margin: 0 auto; }
     .header { text-align: center; margin-bottom: 30px; }
     .header h1 { margin: 0; color: var(--primary); font-size: 28px; }
     .header p { color: var(--text-muted); margin-top: 5px; }
@@ -65,61 +65,105 @@
     .status-pass { color: #059669; font-weight: bold; }
     .status-fail { color: #dc2626; font-weight: bold; }
 
-    /* 🚨 2분할 (왼쪽: 이미지+빨간 상자 / 오른쪽: 설명) 위험도 카드 */
+    /* 🎯 광고 검수 결과용 2컬럼 레이아웃 (좌: 단일 이미지 스티키 / 우: 번호별 설명) */
     .summary-box { display: flex; gap: 10px; margin-bottom: 20px; }
     .badge { padding: 8px 15px; border-radius: 20px; font-weight: bold; font-size: 14px; }
     .badge.high { background: #fee2e2; color: var(--high-color); border: 1px solid #fca5a5; }
     .badge.medium { background: #fef3c7; color: var(--medium-color); border: 1px solid #fcd34d; }
     .badge.low { background: #eff6ff; color: var(--low-color); border: 1px solid #bfdbfe; }
-    
-    .risk-split-card {
-      display: flex;
-      gap: 20px;
-      background: #ffffff;
-      border-radius: 10px;
-      padding: 18px;
-      margin-bottom: 20px;
-      box-shadow: 0 2px 5px rgba(0,0,0,0.06);
-      border: 1px solid #e5e7eb;
-    }
-    .risk-split-card.risk-high { border-left: 6px solid var(--high-color); background: #fff8f8; }
-    .risk-split-card.risk-medium { border-left: 6px solid var(--medium-color); background: #fffdf5; }
-    .risk-split-card.risk-low { border-left: 6px solid var(--low-color); background: #f8fafc; }
 
-    /* 왼쪽 이미지 영역 (빨간 상자 오버레이 위치) */
-    .risk-left-img-wrap {
-      flex: 0 0 320px;
-      position: relative;
-      background: #000;
-      border-radius: 6px;
-      overflow: hidden;
-      border: 1px solid #ccc;
+    .ad-report-container {
+      display: flex;
+      gap: 24px;
+      align-items: flex-start;
+      margin-top: 20px;
     }
-    .risk-left-img-wrap img {
+
+    /* 왼쪽 단일 이미지 창 (스크롤 시 고정되도록 sticky 설정) */
+    .ad-image-pane {
+      flex: 0 0 420px;
+      position: sticky;
+      top: 20px;
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 10px;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+      max-height: 85vh;
+      overflow-y: auto;
+    }
+
+    .single-img-wrap {
+      position: relative;
+      width: 100%;
+      font-size: 0;
+    }
+
+    .single-img-wrap img {
       width: 100%;
       height: auto;
       display: block;
-    }
-    /* 빨간색 Bounding Box 오버레이 */
-    .red-bounding-box {
-      position: absolute;
-      border: 3px solid #dc2626;
-      background-color: rgba(220, 38, 38, 0.2);
-      box-shadow: 0 0 10px rgba(220, 38, 38, 0.6);
-      border-radius: 3px;
-      pointer-events: none;
+      border-radius: 6px;
     }
 
-    /* 오른쪽 설명 영역 */
-    .risk-right-info { flex: 1; }
-    .risk-title { font-weight: bold; font-size: 17px; margin-bottom: 10px; }
-    .risk-text { font-size: 14px; background: rgba(255,255,255,0.9); padding: 10px; border-radius: 6px; margin-bottom: 10px; border: 1px dashed #cbd5e1; font-family: monospace; }
+    /* 위치 표시 박스 & 번호 배지 */
+    .overlay-box {
+      position: absolute;
+      border: 3px solid #dc2626;
+      box-sizing: border-box;
+      pointer-events: none;
+      border-radius: 4px;
+      box-shadow: 0 0 8px rgba(0,0,0,0.3);
+      transition: all 0.2s;
+    }
+
+    .box-num-badge {
+      position: absolute;
+      top: -12px;
+      left: -12px;
+      color: white;
+      font-size: 12px;
+      font-weight: bold;
+      padding: 2px 7px;
+      border-radius: 12px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.4);
+      z-index: 10;
+    }
+
+    /* 오른쪽 설명 리스트 창 */
+    .ad-details-pane {
+      flex: 1;
+    }
+
+    .risk-card {
+      background: #ffffff;
+      border-radius: 10px;
+      padding: 18px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+      border: 1px solid #e5e7eb;
+    }
+    .risk-card.risk-high { border-left: 6px solid var(--high-color); background: #fff8f8; }
+    .risk-card.risk-medium { border-left: 6px solid var(--medium-color); background: #fffdf5; }
+    .risk-card.risk-low { border-left: 6px solid var(--low-color); background: #f8fafc; }
+
+    .item-number-tag {
+      color: white;
+      font-size: 13px;
+      font-weight: bold;
+      padding: 3px 9px;
+      border-radius: 12px;
+      display: inline-block;
+    }
+
+    .risk-title { font-weight: bold; font-size: 16px; }
+    .risk-text { font-size: 14px; background: rgba(255,255,255,0.9); padding: 10px; border-radius: 6px; margin: 10px 0; border: 1px dashed #cbd5e1; font-family: monospace; }
     .risk-desc { font-size: 14px; color: #334155; margin-bottom: 10px; line-height: 1.6; }
     .risk-action { font-size: 14px; color: var(--primary); font-weight: bold; background: #eff6ff; padding: 10px; border-radius: 6px; border: 1px solid #bfdbfe; }
 
-    @media (max-width: 768px) {
-      .risk-split-card { flex-direction: column; }
-      .risk-left-img-wrap { flex: none; width: 100%; }
+    @media (max-width: 868px) {
+      .ad-report-container { flex-direction: column; }
+      .ad-image-pane { flex: none; width: 100%; position: relative; top: 0; max-height: none; }
     }
   </style>
 </head>
@@ -180,7 +224,7 @@
 
 <script>
   let currentMode = "LABEL";
-  let uploadedImageSrc = ""; // 업로드된 이미지 미리보기 URL
+  let uploadedImageSrc = ""; 
 
   window.addEventListener('DOMContentLoaded', () => {
     initDropZone('mainDropZone', 'imageFile', 'mainFileInfo');
@@ -301,56 +345,87 @@
     }
   }
 
-  // 🅰️ [왼쪽: 이미지+빨간 네모 / 오른쪽: 설명] 2분할 렌더링
+  // 🎯 [단일 이미지 (좌) + 번호별 설명 모음 (우)] 렌더링
   function renderAdReport(result) {
     const rs = result.risk_summary;
     let html = `
       <div class="card">
         <h2 style="color:var(--primary); margin-top:0;">📢 표시·광고법 정밀 검수 리포트</h2>
-        <p style="margin-bottom:20px;"><strong>판독 분류:</strong> ${result.product_info.detected_category}</p>
+        <p style="margin-bottom:15px;"><strong>판독 분류:</strong> ${result.product_info.detected_category}</p>
         
         <div class="summary-box">
           <span class="badge high">상(무조건 수정): ${rs.high_count}건</span>
           <span class="badge medium">중(수정 권장): ${rs.medium_count}건</span>
           <span class="badge low">하(선택 참고): ${rs.low_count}건</span>
         </div>
-        <hr style="border:0; border-top:1px solid #e5e7eb; margin:20px 0;">
+        <hr style="border:0; border-top:1px solid #e5e7eb; margin:15px 0;">
     `;
 
     if (result.risk_details.length === 0) {
-      html += `<p style="color:#059669; font-weight:bold;">🎉 검출된 위험 요소가 없습니다. 안전한 광고입니다.</p>`;
-    } else {
-      result.risk_details.forEach(item => {
-        let cardClass = item.level === "HIGH" ? "risk-high" : (item.level === "MEDIUM" ? "risk-medium" : "risk-low");
-        let titleColor = item.level === "HIGH" ? "var(--high-color)" : (item.level === "MEDIUM" ? "var(--medium-color)" : "var(--low-color)");
-        
-        // 📌 AI가 추출한 좌표 [ymin, xmin, ymax, xmax] (0~1000)를 CSS %로 변환
-        const box = item.box_2d || [100, 100, 300, 900];
-        const top = (box[0] / 10).toFixed(1);
-        const left = (box[1] / 10).toFixed(1);
-        const height = ((box[2] - box[0]) / 10).toFixed(1);
-        const width = ((box[3] - box[1]) / 10).toFixed(1);
-
-        html += `
-          <div class="risk-split-card ${cardClass}">
-            <!-- 왼쪽: 이미지 + 빨간색 네모 박스 오버레이 -->
-            <div class="risk-left-img-wrap">
-              <img src="${uploadedImageSrc}" alt="광고 원본 이미지">
-              <div class="red-bounding-box" style="top: ${top}%; left: ${left}%; width: ${width}%; height: ${height}%;"></div>
-            </div>
-
-            <!-- 오른쪽: 상세 단속 사유 및 조치 가이드 -->
-            <div class="risk-right-info">
-              <div class="risk-title" style="color: ${titleColor};">[${item.level_kr}] ${item.issue}</div>
-              <div class="risk-text"><strong>검출 원문:</strong> "${item.target_text}"</div>
-              <div class="risk-desc"><strong>단속 사유:</strong> ${item.reason}</div>
-              <div class="risk-action">👉 <strong>조치 가이드:</strong> ${item.action}</div>
-            </div>
-          </div>
-        `;
-      });
+      html += `<p style="color:#059669; font-weight:bold;">🎉 검출된 위험 요소가 없습니다. 안전한 광고입니다.</p></div>`;
+      document.getElementById("resultArea").innerHTML = html;
+      return;
     }
-    html += `</div>`;
+
+    // 2컬럼 레이아웃 시작
+    html += `
+      <div class="ad-report-container">
+        <!-- 왼쪽: 단 한 장의 이미지 + 모든 위치 박스 및 번호표 오버레이 -->
+        <div class="ad-image-pane">
+          <div class="single-img-wrap">
+            <img src="${uploadedImageSrc}" alt="광고 원본 이미지">
+    `;
+
+    // 이미지 하나 위에 모든 검출 위치의 박스(#1, #2, #3...)를 함께 얹기
+    result.risk_details.forEach((item, index) => {
+      const box = item.box_2d || [100, 100, 300, 900];
+      const top = (box[0] / 10).toFixed(1);
+      const left = (box[1] / 10).toFixed(1);
+      const height = ((box[2] - box[0]) / 10).toFixed(1);
+      const width = ((box[3] - box[1]) / 10).toFixed(1);
+
+      let boxColor = item.level === "HIGH" ? "#dc2626" : (item.level === "MEDIUM" ? "#d97706" : "#2563eb");
+      let bgColor = item.level === "HIGH" ? "rgba(220, 38, 38, 0.2)" : (item.level === "MEDIUM" ? "rgba(217, 119, 6, 0.2)" : "rgba(37, 99, 235, 0.2)");
+
+      html += `
+        <div class="overlay-box" style="top: ${top}%; left: ${left}%; width: ${width}%; height: ${height}%; border-color: ${boxColor}; background-color: ${bgColor};">
+          <span class="box-num-badge" style="background-color: ${boxColor};">#${index + 1}</span>
+        </div>
+      `;
+    });
+
+    html += `
+          </div>
+        </div>
+
+        <!-- 오른쪽: 번호 매칭 설명 리스트 -->
+        <div class="ad-details-pane">
+    `;
+
+    result.risk_details.forEach((item, index) => {
+      let cardClass = item.level === "HIGH" ? "risk-high" : (item.level === "MEDIUM" ? "risk-medium" : "risk-low");
+      let titleColor = item.level === "HIGH" ? "var(--high-color)" : (item.level === "MEDIUM" ? "var(--medium-color)" : "var(--low-color)");
+      let tagBg = item.level === "HIGH" ? "var(--high-color)" : (item.level === "MEDIUM" ? "var(--medium-color)" : "var(--low-color)");
+
+      html += `
+        <div class="risk-card ${cardClass}">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+            <span class="item-number-tag" style="background:${tagBg};">#${index + 1}</span>
+            <div class="risk-title" style="color: ${titleColor};">[${item.level_kr}] ${item.issue}</div>
+          </div>
+          <div class="risk-text"><strong>검출 원문:</strong> "${item.target_text}"</div>
+          <div class="risk-desc"><strong>단속 사유:</strong> ${item.reason}</div>
+          <div class="risk-action">👉 <strong>조치 가이드:</strong> ${item.action}</div>
+        </div>
+      `;
+    });
+
+    html += `
+        </div>
+      </div>
+    </div>
+    `;
+
     document.getElementById("resultArea").innerHTML = html;
   }
 
