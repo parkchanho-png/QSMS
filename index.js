@@ -28,7 +28,7 @@ async function fetchLatestLawInfo(lawApiKey) {
 
     if (!res.ok) return "[기본 모드] 법령 서버 응답 지연";
     let xmlText = await res.text();
-    xmlText = xmlText.replace(/<!\[CDATA\[\vert{}\]\]>/g, "");
+    xmlText = xmlText.replace(/<!\[CDATA\[|\]\]>/g, "");
 
     const dateMatch = xmlText.match(/<시행일자>(.*?)<\/시행일자>/);
     const numMatch = xmlText.match(/<발령번호>(.*?)<\/발령번호>/);
@@ -103,14 +103,15 @@ function processLabelRulesEngine(aiData, lawStr) {
   };
 }
 
-// 📌 [핵심] Gemini 없이 받은 Tesseract 텍스트만으로 검수! (토큰 0, 딜레이 0)
 function processAdRulesEngine(phrasesList, lawStr) {
   let formattedRisks = [];
   let highCount = 0; let mediumCount = 0; let lowCount = 0;
 
+  // AI가 필터링해준 결과물 루프
   phrasesList.forEach((item) => {
     const text = item.text || "";
-    const yPercent = (typeof item.y_percent === "number") ? item.y_percent : 10;
+    // AI가 반환한 y_percent를 그대로 살려서 사용
+    const yPercent = (typeof item.y_percent === "number") ? Math.min(100, Math.max(0, item.y_percent)) : 10;
 
     AD_RULES_DICTIONARY.forEach(rule => {
       if (rule.keywords.some(kw => text.includes(kw)) && (!rule.exclude_keywords || !rule.exclude_keywords.some(ex => text.includes(ex)))) {
@@ -130,7 +131,7 @@ function processAdRulesEngine(phrasesList, lawStr) {
 
   return {
     inspect_mode: "AD", law_status: lawStr,
-    product_info: { product_name: "Tesseract.js OCR 검수 완료", detected_category: "상세페이지 광고" },
+    product_info: { product_name: "상세페이지 검수 완료", detected_category: "식품 광고" },
     risk_summary: { total_issues: formattedRisks.length, high_count: highCount, medium_count: mediumCount, low_count: lowCount },
     risk_details: formattedRisks
   };
@@ -146,70 +147,30 @@ export default {
 
     if (request.method === "POST") {
       try {
+        if (!geminiApiKey) throw new Error("서버 GEMINI_API_KEY가 설정되지 않았습니다.");
+
         const formData = await request.formData();
         const inspectMode = (formData.get("mode") || "LABEL").toUpperCase();
+        const labelFile = formData.get("image");
+        const tesseractOcrRaw = formData.get("tesseract_ocr") || "데이터 없음";
+
+        if (!labelFile) throw new Error("분석할 이미지가 전송되지 않았습니다.");
+        const labelBuffer = await labelFile.arrayBuffer();
         const lawHeaderStr = await fetchLatestLawInfo(lawApiKey);
 
-        // 📌 1. 광고 모드: 구글 서버 호출 완전 생략 (즉시 리턴)
+        let contentsParts = [];
+
         if (inspectMode === "AD") {
-          const tesseractOcrRaw = formData.get("tesseract_ocr");
-          let finalPhrases = [];
-          if (tesseractOcrRaw) {
-            try { finalPhrases = JSON.parse(tesseractOcrRaw); } catch (e) {}
-          }
-          
-          const finalReport = processAdRulesEngine(finalPhrases, lawHeaderStr);
-          return new Response(JSON.stringify({ success: true, result: finalReport }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
-        } 
-        
-        // 📌 2. 라벨 모드: 표 분석을 위해 불가피하게 Gemini 호출
-        if (!geminiApiKey) throw new Error("서버 GEMINI_API_KEY가 설정되지 않았습니다.");
-        const labelFile = formData.get("image");
-        if (!labelFile) throw new Error("분석할 이미지가 전송되지 않았습니다.");
-        
-        const labelBuffer = await labelFile.arrayBuffer();
-        const contentsParts = [
-          { text: `한글표시사항 라벨 텍스트를 추출해 JSON으로 응답하세요.\n기준: ${lawHeaderStr}\n{"category":"FOOD","product_name":"명","food_type":"유형","label_data":{"product_name":"","food_type":"","business_name":"","address":"","expiration_date":"","net_weight":"","ingredients":"","nutrition":"","package_material":"","caution":""},"doc_data":{"address":""}}` },
-          { inlineData: { mimeType: labelFile.type || "image/jpeg", data: arrayBufferToBase64(labelBuffer) } }
-        ];
+          // 📌 2단계: AI의 뇌 (필터링 및 교정)
+          let promptText = `
+상세페이지 이미지를 식약처 표시광고법 기준으로 정밀 검수하세요.
+기준: ${lawHeaderStr}
 
-        const modelsToTry = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
-        let rawResponseText = ""; let lastErrorLog = "";
+[사전 기계 추출된 OCR 데이터 (참고용)]
+${tesseractOcrRaw}
 
-        for (const modelName of modelsToTry) {
-          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
-          const requestBody = { contents: [{ parts: contentsParts }], generationConfig: { responseMimeType: "application/json", temperature: 0.0 } };
-          let is404 = false;
-
-          for (let attempt = 0; attempt <= 2; attempt++) {
-            try {
-              const geminiRes = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
-              if (geminiRes.ok) {
-                const data = await geminiRes.json();
-                rawResponseText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-                if (rawResponseText) break;
-              } else {
-                lastErrorLog = await geminiRes.text();
-                if (geminiRes.status === 404) { is404 = true; break; }
-                if ((geminiRes.status === 503 || geminiRes.status === 429) && attempt < 2) await delay([1500, 3000][attempt]); else break;
-              }
-            } catch (e) { lastErrorLog = e.message; }
-          }
-          if (rawResponseText) break;
-          if (is404) continue;
-        }
-
-        if (!rawResponseText) throw new Error(`[API 오류] 구글 서버 응답 실패: ${lastErrorLog.substring(0, 150)}`);
-        
-        const aiExtractedData = parseAIJSON(rawResponseText);
-        if (!aiExtractedData) throw new Error("AI 결과 데이터를 파싱하지 못했습니다.");
-
-        const finalReport = processLabelRulesEngine(aiExtractedData, lawHeaderStr);
-        return new Response(JSON.stringify({ success: true, result: finalReport }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
-
-      } catch (err) {
-        return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
-      }
-    }
-  }
-};
+[지침]
+1. 위 OCR 데이터는 기계가 추출하여 ". ㅠㅜ, 6연출된" 같은 쓰레기 문자(Garbage text)나 오타가 포함되어 있습니다.
+2. 당신은 이미지를 직접 눈으로 보고, 위 데이터를 참고하여 오타를 문맥에 맞게 깔끔하게 교정하세요. 의미 없는 기호나 쓰레기 텍스트는 필터링해서 버리세요.
+3. 표시광고 단속 대상("등심", "새우", "연출된", "조리예", "특제", "최상급" 등)이 포함된 문구만 골라내세요.
+4. 반환 시, OCR 데이터에 있던 해당 문구의 원래 세로 위치 비율(y_percent) 숫자를 그대로 가져와서 매칭해 주세요. (절대 100으로 고정하지 말 것)
