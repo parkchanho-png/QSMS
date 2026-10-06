@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LabelGuard AI - 통합 정밀 검수 시스템</title>
-  <!-- 📌 Tesseract.js 필수 탑재 -->
+  <!-- 📌 Tesseract.js 하이브리드 OCR 라이브러리 -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     :root {
@@ -75,8 +75,8 @@
 
 <div class="container">
   <div class="header">
-    <h1>LabelGuard AI (v18.0)</h1>
-    <p>Tesseract 1차 추출 + AI 2차 검증/교정 하이브리드 엔진</p>
+    <h1>LabelGuard AI (v19.0)</h1>
+    <p>전체 모드 Tesseract 1차 OCR + AI 2차 하이브리드 검수 시스템</p>
   </div>
 
   <div class="card">
@@ -221,13 +221,12 @@
     if (infoContainer) infoContainer.innerText = `선택된 파일: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
   }
 
-  // 📌 Tesseract 위치 100% 고정 버그 완벽 해결
+  // 📌 라벨 / 광고 공통 Tesseract 초벌 스캔 함수
   async function runClientTesseractOCR(file) {
     return new Promise((resolve) => {
-      // 1. 실제 이미지의 픽셀 높이를 강제로 구해옵니다.
       const img = new Image();
       img.onload = async () => {
-        const actualHeight = img.naturalHeight; // 진짜 이미지 세로 길이 확보
+        const actualHeight = img.naturalHeight || 1000;
 
         try {
           if (typeof Tesseract === 'undefined') {
@@ -257,7 +256,6 @@
             ret.data.lines.forEach(line => {
               const text = line.text.replace(/\s+/g, " ").trim();
               if (text.length >= 2) {
-                // Tesseract의 가짜 높이가 아닌 실제 이미지 높이(actualHeight)를 사용하여 퍼센트 계산!
                 const yCenter = (line.bbox.y0 + line.bbox.y1) / 2;
                 const yPercent = Math.min(99, Math.max(1, Math.round((yCenter / actualHeight) * 100)));
                 extractedLines.push({ text: text, y_percent: yPercent });
@@ -285,21 +283,19 @@
       formData.append("mode", currentMode);
       formData.append("image", selectedMainFile);
 
-      if (currentMode === "AD") {
-        document.getElementById('loadingText').innerText = "Tesseract + AI 하이브리드 검수 진행 중...";
-        
-        // 🚨 Tesseract 초벌 실행 (좌표 추출 특화)
-        const ocrData = await runClientTesseractOCR(selectedMainFile);
-        if (ocrData && ocrData.length > 0) {
-          formData.append("tesseract_ocr", JSON.stringify(ocrData));
-        }
+      document.getElementById('loadingText').innerText = "Tesseract + AI 하이브리드 검수 진행 중...";
+      
+      // 🚨 라벨 검수 / 광고 검수 공통 Tesseract 1차 OCR 스캔
+      const ocrData = await runClientTesseractOCR(selectedMainFile);
+      if (ocrData && ocrData.length > 0) {
+        formData.append("tesseract_ocr", JSON.stringify(ocrData));
+      }
 
-        document.getElementById('loadingText').innerText = "2/2단계: AI 오타 필터링 & 법률 검증 중...";
-        document.getElementById('loadingSubText').innerText = "Tesseract 데이터를 AI가 문맥에 맞게 교정하고 있습니다.";
-      } else {
-        document.getElementById('loadingText').innerText = "AI 정밀 라벨 판독 중...";
-        document.getElementById('loadingSubText').innerText = "구글 서버 상태에 따라 5~15초 정도 소요될 수 있습니다.";
-        if (selectedDocFile) formData.append("doc", selectedDocFile);
+      document.getElementById('loadingText').innerText = "2/2단계: AI 오타 필터링 & 법률/표시기준 정밀 검증 중...";
+      document.getElementById('loadingSubText').innerText = "Tesseract 추출 결과를 바탕으로 AI가 항목별 교정 및 필수 표기사항을 판독합니다.";
+
+      if (currentMode === "LABEL" && selectedDocFile) {
+        formData.append("doc", selectedDocFile);
       }
 
       const response = await fetch("https://qsms.park-chanho.workers.dev", { method: "POST", body: formData });
@@ -402,7 +398,7 @@
       <div class="card">
         <h2 style="color:var(--primary); margin-top:0;">🏷️ 한글표시사항 정밀 검수 리포트</h2>
         <div style="background:#eff6ff; padding:10px; border-radius:6px; font-weight:bold; color:var(--primary); margin-bottom:15px; font-size:14px;">
-          ⚖️ ${result.law_status || '식약처 고시 기준 적용'}
+          ⚖️ ${result.law_status || '식약처 고시 기준 적용'} (AI 필터링 & 교정 완료)
         </div>
         <p><strong>총평:</strong> ${result.summary}</p>
         <p><strong>제품명:</strong> ${result.analyzed_summary.product_name} | <strong>식품유형:</strong> ${result.analyzed_summary.food_type}</p>
