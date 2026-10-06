@@ -18,7 +18,7 @@ function parseAIJSON(raw) {
 }
 
 async function fetchLatestLawInfo(lawApiKey) {
-  if (!lawApiKey) return "[기본 모드] 식약처 고시 『식품등의 표시기준』 적용 (LAW_API_KEY 미설정)";
+  if (!lawApiKey) return "[기본 모드] 식약처 고시 『식품등의 표시기준』 적용 (API 키 미설정)";
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4000);
@@ -30,15 +30,13 @@ async function fetchLatestLawInfo(lawApiKey) {
     let xmlText = await res.text();
     xmlText = xmlText.replace(/<!\[CDATA\[\vert{}\]\]>/g, "");
 
-    const titleMatch = xmlText.match(/<행정규칙명>(.*?)<\/행정규칙명>/) || xmlText.match(/<법령명>(.*?)<\/법령명>/);
     const dateMatch = xmlText.match(/<시행일자>(.*?)<\/시행일자>/);
     const numMatch = xmlText.match(/<발령번호>(.*?)<\/발령번호>/);
 
-    const title = titleMatch ? titleMatch[1].trim() : "식품등의 표시기준";
     const date = dateMatch ? dateMatch[1].trim() : "최신";
     const num = numMatch ? numMatch[1].trim() : "";
 
-    return `[국가법령정보센터 실시간 동기화] 식약처 고시 『${title}』 (시행일자: ${date}${num ? `, 제${num}호` : ''})`;
+    return `[국가법령정보센터 실시간 동기화] 식약처 고시 『식품등의 표시기준』 (시행일자: ${date}${num ? `, 제${num}호` : ''})`;
   } catch (e) {
     return "[기본 모드] 식약처 고시 『식품등의 표시기준』 적용";
   }
@@ -81,8 +79,7 @@ const AD_RULES_DICTIONARY = [
 function processLabelRulesEngine(aiData, lawStr) {
   if (!aiData) return null;
   const label = aiData.label_data || {};
-  let passedItems = [];
-  let failedItems = [];
+  let passedItems = []; let failedItems = [];
 
   const foodRules = [
     { key: "product_name", name: "제품명" }, { key: "food_type", name: "식품유형" },
@@ -99,15 +96,14 @@ function processLabelRulesEngine(aiData, lawStr) {
   });
 
   return {
-    inspect_mode: "LABEL",
-    law_status: lawStr,
+    inspect_mode: "LABEL", law_status: lawStr,
     summary: "가공식품 10대 필수 항목 검수 완료",
     analyzed_summary: { product_name: aiData.product_name || "판독 완료", food_type: aiData.food_type || "분류 완료" },
     passed_items: passedItems, failed_items: failedItems
   };
 }
 
-// 📌 Tesseract 및 Gemini 혼합 검수 엔진
+// 📌 [핵심] Gemini 없이 받은 Tesseract 텍스트만으로 검수! (토큰 0, 딜레이 0)
 function processAdRulesEngine(phrasesList, lawStr) {
   let formattedRisks = [];
   let highCount = 0; let mediumCount = 0; let lowCount = 0;
@@ -129,13 +125,12 @@ function processAdRulesEngine(phrasesList, lawStr) {
     });
   });
 
-  // 상(HIGH) -> 중(MEDIUM) -> 하(LOW) 순 정렬
   const priorityMap = { "HIGH": 1, "MEDIUM": 2, "LOW": 3 };
   formattedRisks.sort((a, b) => (priorityMap[a.level] || 99) - (priorityMap[b.level] || 99) || a.y_percent - b.y_percent);
 
   return {
     inspect_mode: "AD", law_status: lawStr,
-    product_info: { product_name: "상세페이지 검수 완료", detected_category: "식품 광고" },
+    product_info: { product_name: "Tesseract.js OCR 검수 완료", detected_category: "상세페이지 광고" },
     risk_summary: { total_issues: formattedRisks.length, high_count: highCount, medium_count: mediumCount, low_count: lowCount },
     risk_details: formattedRisks
   };
@@ -151,71 +146,66 @@ export default {
 
     if (request.method === "POST") {
       try {
-        if (!geminiApiKey) throw new Error("서버 GEMINI_API_KEY가 설정되지 않았습니다.");
-
         const formData = await request.formData();
         const inspectMode = (formData.get("mode") || "LABEL").toUpperCase();
-        const labelFile = formData.get("image");
-        const tesseractOcrRaw = formData.get("tesseract_ocr");
-
-        if (!labelFile) throw new Error("분석할 이미지가 전송되지 않았습니다.");
-        const labelBuffer = await labelFile.arrayBuffer();
         const lawHeaderStr = await fetchLatestLawInfo(lawApiKey);
 
-        let finalPhrases = [];
-
+        // 📌 1. 광고 모드: 구글 서버 호출 완전 생략 (즉시 리턴)
         if (inspectMode === "AD") {
-          // 📌 1순위: Tesseract.js가 전달한 정밀 Y% 문구 사용
+          const tesseractOcrRaw = formData.get("tesseract_ocr");
+          let finalPhrases = [];
           if (tesseractOcrRaw) {
             try { finalPhrases = JSON.parse(tesseractOcrRaw); } catch (e) {}
           }
-
-          // Tesseract가 빈 결과를 냈을 경우 Gemini OCR로 Fallback
-          if (!finalPhrases || finalPhrases.length === 0) {
-            let promptText = `상세페이지 전체 문구를 빠짐없이 추출하고 y_percent(0~100) 위치를 반환하세요.\n{"detected_phrases":[{"text":"문구","y_percent": 10}]}`;
-            const contentsParts = [
-              { text: promptText },
-              { inlineData: { mimeType: labelFile.type || "image/jpeg", data: arrayBufferToBase64(labelBuffer) } }
-            ];
-
-            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
-            const geminiRes = await fetch(endpoint, {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ contents: [{ parts: contentsParts }], generationConfig: { responseMimeType: "application/json", temperature: 0.0 } })
-            });
-
-            if (geminiRes.ok) {
-              const data = await geminiRes.json();
-              const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-              const parsed = parseAIJSON(rawText);
-              finalPhrases = parsed?.detected_phrases || [];
-            }
-          }
-
+          
           const finalReport = processAdRulesEngine(finalPhrases, lawHeaderStr);
           return new Response(JSON.stringify({ success: true, result: finalReport }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
+        } 
+        
+        // 📌 2. 라벨 모드: 표 분석을 위해 불가피하게 Gemini 호출
+        if (!geminiApiKey) throw new Error("서버 GEMINI_API_KEY가 설정되지 않았습니다.");
+        const labelFile = formData.get("image");
+        if (!labelFile) throw new Error("분석할 이미지가 전송되지 않았습니다.");
+        
+        const labelBuffer = await labelFile.arrayBuffer();
+        const contentsParts = [
+          { text: `한글표시사항 라벨 텍스트를 추출해 JSON으로 응답하세요.\n기준: ${lawHeaderStr}\n{"category":"FOOD","product_name":"명","food_type":"유형","label_data":{"product_name":"","food_type":"","business_name":"","address":"","expiration_date":"","net_weight":"","ingredients":"","nutrition":"","package_material":"","caution":""},"doc_data":{"address":""}}` },
+          { inlineData: { mimeType: labelFile.type || "image/jpeg", data: arrayBufferToBase64(labelBuffer) } }
+        ];
 
-        } else {
-          // 라벨 모드
-          const contentsParts = [
-            { text: `한글표시사항 라벨 텍스트를 추출해 JSON으로 응답하세요.\n기준: ${lawHeaderStr}\n{"category":"FOOD","product_name":"명","food_type":"유형","label_data":{"product_name":"","food_type":"","business_name":"","address":"","expiration_date":"","net_weight":"","ingredients":"","nutrition":"","package_material":"","caution":""},"doc_data":{"address":""}}` },
-            { inlineData: { mimeType: labelFile.type || "image/jpeg", data: arrayBufferToBase64(labelBuffer) } }
-          ];
+        const modelsToTry = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-flash-latest"];
+        let rawResponseText = ""; let lastErrorLog = "";
 
-          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
-          const geminiRes = await fetch(endpoint, {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ contents: [{ parts: contentsParts }], generationConfig: { responseMimeType: "application/json", temperature: 0.0 } })
-          });
+        for (const modelName of modelsToTry) {
+          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${geminiApiKey}`;
+          const requestBody = { contents: [{ parts: contentsParts }], generationConfig: { responseMimeType: "application/json", temperature: 0.0 } };
+          let is404 = false;
 
-          if (!geminiRes.ok) throw new Error("Gemini API 호출 실패");
-          const data = await geminiRes.json();
-          const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
-          const aiExtractedData = parseAIJSON(rawText);
-
-          const finalReport = processLabelRulesEngine(aiExtractedData, lawHeaderStr);
-          return new Response(JSON.stringify({ success: true, result: finalReport }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
+          for (let attempt = 0; attempt <= 2; attempt++) {
+            try {
+              const geminiRes = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody) });
+              if (geminiRes.ok) {
+                const data = await geminiRes.json();
+                rawResponseText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                if (rawResponseText) break;
+              } else {
+                lastErrorLog = await geminiRes.text();
+                if (geminiRes.status === 404) { is404 = true; break; }
+                if ((geminiRes.status === 503 || geminiRes.status === 429) && attempt < 2) await delay([1500, 3000][attempt]); else break;
+              }
+            } catch (e) { lastErrorLog = e.message; }
+          }
+          if (rawResponseText) break;
+          if (is404) continue;
         }
+
+        if (!rawResponseText) throw new Error(`[API 오류] 구글 서버 응답 실패: ${lastErrorLog.substring(0, 150)}`);
+        
+        const aiExtractedData = parseAIJSON(rawResponseText);
+        if (!aiExtractedData) throw new Error("AI 결과 데이터를 파싱하지 못했습니다.");
+
+        const finalReport = processLabelRulesEngine(aiExtractedData, lawHeaderStr);
+        return new Response(JSON.stringify({ success: true, result: finalReport }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
 
       } catch (err) {
         return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
