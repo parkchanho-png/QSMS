@@ -19,8 +19,9 @@
     
     .card { background: var(--card-bg); border-radius: 12px; padding: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid #e5e7eb; }
     
-    .mode-selector { display: flex; gap: 10px; margin-bottom: 20px; }
-    .mode-btn { flex: 1; padding: 15px; border: 2px solid var(--border); background: #f9fafb; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; color: var(--text-muted); transition: all 0.2s; }
+    /* 🚨 버튼 클릭 안되는 문제 방지 (z-index 및 포인터 보장) */
+    .mode-selector { display: flex; gap: 10px; margin-bottom: 20px; position: relative; z-index: 10; }
+    .mode-btn { flex: 1; padding: 15px; border: 2px solid var(--border); background: #f9fafb; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; color: var(--text-muted); transition: all 0.2s; pointer-events: auto; }
     .mode-btn.active { border-color: var(--primary); background: #eff6ff; color: var(--primary); }
     .mode-btn:hover { background: #f3f4f6; }
     
@@ -72,16 +73,17 @@
 
 <div class="container">
   <div class="header">
-    <h1>LabelGuard AI (v16.0)</h1>
+    <h1>LabelGuard AI (v16.1)</h1>
     <p>OCR 초벌 + AI 2차 검증 하이브리드 엔진</p>
   </div>
 
   <div class="card">
     <div class="mode-selector">
-      <button type="button" id="btnModeLabel" class="mode-btn active" onclick="setMode('LABEL')">
+      <!-- 🚨 onclick 속성 제거 -->
+      <button type="button" id="btnModeLabel" class="mode-btn active">
         🏷️ 한글표시사항 검수
       </button>
-      <button type="button" id="btnModeAd" class="mode-btn" onclick="setMode('AD')">
+      <button type="button" id="btnModeAd" class="mode-btn">
         📢 상세페이지/광고 검수
       </button>
     </div>
@@ -106,7 +108,7 @@
       </div>
     </div>
 
-    <button type="button" id="submitBtn" class="btn-submit" onclick="uploadAndInspect()">분석 시작하기</button>
+    <button type="button" id="submitBtn" class="btn-submit">분석 시작하기</button>
   </div>
 
   <div class="card" id="loadingArea">
@@ -124,113 +126,5 @@
   let riskDetailsData = [];
 
   window.addEventListener('DOMContentLoaded', () => {
-    setupDropZone('mainDropZone', 'imageFile', 'mainFileInfo');
-    setupDropZone('docDropZone', 'docFile', 'docFileInfo');
-  });
-
-  function setupDropZone(dropZoneId, inputId, infoId) {
-    const dropZone = document.getElementById(dropZoneId);
-    const input = document.getElementById(inputId);
-    dropZone.addEventListener('click', () => input.click());
-    input.addEventListener('change', () => handleFileChange(input, infoId));
-
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-      dropZone.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
-    });
-    ['dragenter', 'dragover'].forEach(eventName => {
-      dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
-    });
-    ['dragleave', 'drop'].forEach(eventName => {
-      dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
-    });
-    dropZone.addEventListener('drop', (e) => {
-      const dt = e.dataTransfer;
-      if (dt && dt.files && dt.files.length > 0) {
-        input.files = dt.files;
-        handleFileChange(input, infoId);
-      }
-    }, false);
-  }
-
-  function handleFileChange(input, infoId) {
-    const infoContainer = document.getElementById(infoId);
-    if (input.files && input.files[0]) {
-      const file = input.files[0];
-      infoContainer.innerText = `선택된 파일: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
-      if (input.id === 'imageFile') uploadedImageSrc = URL.createObjectURL(file);
-    } else {
-      infoContainer.innerText = '';
-    }
-  }
-
-  function setMode(mode) {
-    currentMode = mode;
-    document.getElementById("btnModeLabel").classList.toggle("active", mode === "LABEL");
-    document.getElementById("btnModeAd").classList.toggle("active", mode === "AD");
-    const docGroup = document.getElementById("docUploadGroup");
-    const mainLabel = document.getElementById("mainImageLabel");
-    if(mode === "AD") {
-      docGroup.style.display = "none";
-      mainLabel.innerText = "1. 검수할 광고/상세페이지 이미지 첨부 (필수)";
-    } else {
-      docGroup.style.display = "block";
-      mainLabel.innerText = "1. 검수할 한글표시사항 라벨 첨부 (필수)";
-    }
-    document.getElementById("resultArea").style.display = "none";
-  }
-
-  // 📌 1단계: 눈(Tesseract) - 위치 버그 수정 (정중앙 좌표 사용)
-  async function runClientTesseractOCR(file) {
-    return new Promise(async (resolve) => {
-      try {
-        const worker = await Tesseract.createWorker('kor', 1, {
-          logger: m => {
-            const subText = document.getElementById('loadingSubText');
-            if (m.status === 'recognizing text') subText.innerText = `1/2단계: OCR 초벌 스캔 중... ${Math.round(m.progress * 100)}%`;
-          }
-        });
-
-        const ret = await worker.recognize(file);
-        await worker.terminate();
-
-        const imgHeight = ret.data.image_height || 1000;
-        const extractedLines = [];
-
-        if (ret.data && ret.data.lines) {
-          ret.data.lines.forEach(line => {
-            const text = line.text.replace(/\s+/g, " ").trim();
-            if (text.length >= 2) {
-              // Y축 상단(y0)이 아닌 중앙(y0+y1/2)을 기준으로 하여 100% 쏠림 현상 완전 차단
-              const yCenter = (line.bbox.y0 + line.bbox.y1) / 2;
-              const yPercent = Math.min(100, Math.max(0, Math.round((yCenter / imgHeight) * 100)));
-              extractedLines.push({ text: text, y_percent: yPercent });
-            }
-          });
-        }
-        resolve(extractedLines);
-      } catch (err) {
-        resolve([]);
-      }
-    });
-  }
-
-  async function uploadAndInspect() {
-    const imageInput = document.getElementById('imageFile');
-    const docInput = document.getElementById('docFile');
-    if (!imageInput.files[0]) return alert("검수할 이미지를 첨부해주세요.");
-
-    uploadedImageSrc = URL.createObjectURL(imageInput.files[0]);
-    document.getElementById('submitBtn').disabled = true;
-    document.getElementById('resultArea').style.display = "none";
-    document.getElementById('loadingArea').style.display = "block";
-
-    try {
-      const formData = new FormData();
-      formData.append("mode", currentMode);
-      formData.append("image", imageInput.files[0]);
-
-      if (currentMode === "AD") {
-        document.getElementById('loadingText').innerText = "OCR + AI 하이브리드 검수 진행 중...";
-        const ocrData = await runClientTesseractOCR(imageInput.files[0]);
-        if (ocrData.length > 0) formData.append("tesseract_ocr", JSON.stringify(ocrData));
-        document.getElementById('loadingSubText').innerText = "2/2단계: AI가
+    // 🚨 스크립트 단에서 명시적으로 클릭 이벤트 연결 (프레임워크 충돌 방지)
+    document.getElementById('btnModeLabel').addEventListener('click', () => setMode('LABEL'));
