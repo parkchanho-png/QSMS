@@ -19,9 +19,8 @@
     
     .card { background: var(--card-bg); border-radius: 12px; padding: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid #e5e7eb; }
     
-    /* 🚨 버튼 클릭 안되는 문제 방지 (z-index 및 포인터 보장) */
     .mode-selector { display: flex; gap: 10px; margin-bottom: 20px; position: relative; z-index: 10; }
-    .mode-btn { flex: 1; padding: 15px; border: 2px solid var(--border); background: #f9fafb; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; color: var(--text-muted); transition: all 0.2s; pointer-events: auto; }
+    .mode-btn { flex: 1; padding: 15px; border: 2px solid var(--border); background: #f9fafb; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; color: var(--text-muted); transition: all 0.2s; user-select: none; }
     .mode-btn.active { border-color: var(--primary); background: #eff6ff; color: var(--primary); }
     .mode-btn:hover { background: #f3f4f6; }
     
@@ -73,13 +72,12 @@
 
 <div class="container">
   <div class="header">
-    <h1>LabelGuard AI (v16.1)</h1>
+    <h1>LabelGuard AI (v16.2)</h1>
     <p>OCR 초벌 + AI 2차 검증 하이브리드 엔진</p>
   </div>
 
   <div class="card">
     <div class="mode-selector">
-      <!-- 🚨 onclick 속성 제거 -->
       <button type="button" id="btnModeLabel" class="mode-btn active">
         🏷️ 한글표시사항 검수
       </button>
@@ -88,43 +86,4 @@
       </button>
     </div>
 
-    <div class="form-group">
-      <label id="mainImageLabel">1. 검수할 한글표시사항 라벨 첨부 (필수)</label>
-      <div class="drop-zone" id="mainDropZone">
-        <div class="drop-zone-icon">📁</div>
-        <p class="drop-zone-text" id="mainDropZoneText">이미지를 클릭하거나 <strong>이곳으로 드래그하세요</strong></p>
-        <div class="file-info" id="mainFileInfo"></div>
-        <input type="file" id="imageFile" accept="image/*" style="display: none;">
-      </div>
-    </div>
-
-    <div class="form-group" id="docUploadGroup">
-      <label>2. 증빙서류 이미지 첨부 (선택: 사업자등록증 등)</label>
-      <div class="drop-zone" id="docDropZone">
-        <div class="drop-zone-icon">📄</div>
-        <p class="drop-zone-text" id="docDropZoneText">서류를 클릭하거나 <strong>이곳으로 드래그하세요</strong></p>
-        <div class="file-info" id="docFileInfo"></div>
-        <input type="file" id="docFile" accept="image/*" style="display: none;">
-      </div>
-    </div>
-
-    <button type="button" id="submitBtn" class="btn-submit">분석 시작하기</button>
-  </div>
-
-  <div class="card" id="loadingArea">
-    <div class="spinner"></div>
-    <h3 style="margin:0; color:var(--primary);" id="loadingText">검수 진행 중...</h3>
-    <p style="color:var(--text-muted); font-size:14px; font-weight:bold;" id="loadingSubText">서버 상태에 따라 5~15초 정도 소요될 수 있습니다.</p>
-  </div>
-
-  <div id="resultArea" style="display: none;"></div>
-</div>
-
-<script>
-  let currentMode = "LABEL";
-  let uploadedImageSrc = "";
-  let riskDetailsData = [];
-
-  window.addEventListener('DOMContentLoaded', () => {
-    // 🚨 스크립트 단에서 명시적으로 클릭 이벤트 연결 (프레임워크 충돌 방지)
-    document.getElementById('btnModeLabel').addEventListener('click', () => setMode('LABEL'));
+    <div
