@@ -4,20 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LabelGuard AI - 통합 정밀 검수 시스템</title>
-  <!-- 📌 Tesseract.js v5 CDN 복원 -->
+  <!-- 📌 Tesseract.js 필수 탑재 -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     :root {
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --bg-color: #f3f4f6;
-      --card-bg: #ffffff;
-      --border: #d1d5db;
-      --text-main: #1f2937;
-      --text-muted: #6b7280;
-      --high-color: #dc2626;
-      --medium-color: #d97706;
-      --low-color: #2563eb;
+      --primary: #2563eb; --primary-hover: #1d4ed8; --bg-color: #f3f4f6; --card-bg: #ffffff;
+      --border: #d1d5db; --text-main: #1f2937; --text-muted: #6b7280;
+      --high-color: #dc2626; --medium-color: #d97706; --low-color: #2563eb;
     }
     body { font-family: 'Pretendard', -apple-system, sans-serif; background-color: var(--bg-color); color: var(--text-main); margin: 0; padding: 20px; line-height: 1.5; }
     .container { max-width: 1200px; margin: 0 auto; }
@@ -27,13 +20,11 @@
     
     .card { background: var(--card-bg); border-radius: 12px; padding: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid #e5e7eb; }
     
-    /* 모드 선택 탭 */
     .mode-selector { display: flex; gap: 10px; margin-bottom: 20px; position: relative; z-index: 10; }
     .mode-btn { flex: 1; padding: 15px; border: 2px solid var(--border); background: #f9fafb; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer !important; color: var(--text-muted); transition: all 0.2s; pointer-events: auto !important; user-select: none; }
     .mode-btn.active { border-color: var(--primary); background: #eff6ff; color: var(--primary); }
     .mode-btn:hover { background: #f3f4f6; }
     
-    /* 드롭존 스타일 */
     .form-group { margin-bottom: 20px; display: block; }
     .form-group label { display: block; font-weight: bold; margin-bottom: 8px; }
     .drop-zone { border: 2px dashed var(--border); border-radius: 8px; padding: 30px; text-align: center; background: #fafafa; cursor: pointer; transition: all 0.2s; position: relative; }
@@ -47,19 +38,16 @@
     .btn-submit:hover { background: var(--primary-hover); }
     .btn-submit:disabled { background: #9ca3af; cursor: not-allowed; }
 
-    /* 로딩 영역 */
     #loadingArea { text-align: center; padding: 40px; display: none; }
     .spinner { border: 4px solid #f3f3f3; border-top: 4px solid var(--primary); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px auto; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-    /* 테이블 스타일 (라벨 모드용) */
     table { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 25px; font-size: 14px; }
     th, td { border: 1px solid #e5e7eb; padding: 12px; text-align: left; }
     th { background-color: #f9fafb; font-weight: bold; }
     .status-pass { color: #059669; font-weight: bold; }
     .status-fail { color: #dc2626; font-weight: bold; }
 
-    /* 광고 레이아웃 */
     .summary-box { display: flex; gap: 10px; margin-bottom: 20px; }
     .badge { padding: 8px 15px; border-radius: 20px; font-weight: bold; font-size: 14px; }
     .badge.high { background: #fee2e2; color: var(--high-color); border: 1px solid #fca5a5; }
@@ -87,8 +75,8 @@
 
 <div class="container">
   <div class="header">
-    <h1>LabelGuard AI (v16.4)</h1>
-    <p>식약처 고시 라벨 필수항목 & 표시광고법 정밀 검수</p>
+    <h1>LabelGuard AI (v18.0)</h1>
+    <p>Tesseract 1차 추출 + AI 2차 검증/교정 하이브리드 엔진</p>
   </div>
 
   <div class="card">
@@ -126,7 +114,7 @@
 
   <div class="card" id="loadingArea">
     <div class="spinner"></div>
-    <h3 style="margin:0; color:var(--primary);" id="loadingText">AI 정밀 판독 중...</h3>
+    <h3 style="margin:0; color:var(--primary);" id="loadingText">검수 진행 중...</h3>
     <p style="color:var(--text-muted); font-size:14px; font-weight:bold;" id="loadingSubText">서버 상태에 따라 5~15초 정도 소요될 수 있습니다.</p>
   </div>
 
@@ -197,23 +185,20 @@
 
     ['dragenter', 'dragover'].forEach(eventName => {
       dropZone.addEventListener(eventName, (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
         dropZone.classList.add('dragover');
       }, false);
     });
 
     ['dragleave', 'drop'].forEach(eventName => {
       dropZone.addEventListener(eventName, (e) => {
-        e.preventDefault();
-        e.stopPropagation();
+        e.preventDefault(); e.stopPropagation();
         dropZone.classList.remove('dragover');
       }, false);
     });
 
     dropZone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
+      e.preventDefault(); e.stopPropagation();
       const dt = e.dataTransfer;
       if (dt && dt.files && dt.files.length > 0) saveSelectedFile(dt.files[0], infoId, fileType);
     }, false);
@@ -236,52 +221,55 @@
     if (infoContainer) infoContainer.innerText = `선택된 파일: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
   }
 
-  // 📌 Tesseract.js 실시간 퍼센트(%) 트래킹 복원
+  // 📌 Tesseract 위치 100% 고정 버그 완벽 해결
   async function runClientTesseractOCR(file) {
-    return new Promise(async (resolve) => {
-      try {
-        if (typeof Tesseract === 'undefined') {
-          console.warn("Tesseract 라이브러리가 로드되지 않았습니다.");
-          resolve([]);
-          return;
-        }
+    return new Promise((resolve) => {
+      // 1. 실제 이미지의 픽셀 높이를 강제로 구해옵니다.
+      const img = new Image();
+      img.onload = async () => {
+        const actualHeight = img.naturalHeight; // 진짜 이미지 세로 길이 확보
 
-        const worker = await Tesseract.createWorker('kor', 1, {
-          logger: m => {
-            const subText = document.getElementById('loadingSubText');
-            if (subText) {
-              if (m.status === 'recognizing text') {
-                subText.innerText = `1/2단계: OCR 텍스트 스캔 중... ${Math.round(m.progress * 100)}% 완료`;
-              } else if (m.status === 'loading language traineddata') {
-                subText.innerText = `한글 OCR 모델 로드 중... ${Math.round(m.progress * 100)}%`;
-              } else {
-                subText.innerText = `OCR 엔진 준비 중 (${m.status})...`;
+        try {
+          if (typeof Tesseract === 'undefined') {
+            resolve([]);
+            return;
+          }
+
+          const worker = await Tesseract.createWorker('kor', 1, {
+            logger: m => {
+              const subText = document.getElementById('loadingSubText');
+              if (subText) {
+                if (m.status === 'recognizing text') {
+                  subText.innerText = `1/2단계: Tesseract 텍스트 스캔 중... ${Math.round(m.progress * 100)}% 완료`;
+                } else {
+                  subText.innerText = `OCR 엔진 준비 중 (${m.status})...`;
+                }
               }
             }
-          }
-        });
-
-        const ret = await worker.recognize(file);
-        await worker.terminate();
-
-        const imgHeight = ret.data.image_height || 1000;
-        const extractedLines = [];
-
-        if (ret.data && ret.data.lines) {
-          ret.data.lines.forEach(line => {
-            const text = line.text.replace(/\s+/g, " ").trim();
-            if (text.length >= 2) {
-              const yCenter = (line.bbox.y0 + line.bbox.y1) / 2;
-              const yPercent = Math.min(100, Math.max(0, Math.round((yCenter / imgHeight) * 100)));
-              extractedLines.push({ text: text, y_percent: yPercent });
-            }
           });
+
+          const ret = await worker.recognize(file);
+          await worker.terminate();
+
+          const extractedLines = [];
+
+          if (ret.data && ret.data.lines) {
+            ret.data.lines.forEach(line => {
+              const text = line.text.replace(/\s+/g, " ").trim();
+              if (text.length >= 2) {
+                // Tesseract의 가짜 높이가 아닌 실제 이미지 높이(actualHeight)를 사용하여 퍼센트 계산!
+                const yCenter = (line.bbox.y0 + line.bbox.y1) / 2;
+                const yPercent = Math.min(99, Math.max(1, Math.round((yCenter / actualHeight) * 100)));
+                extractedLines.push({ text: text, y_percent: yPercent });
+              }
+            });
+          }
+          resolve(extractedLines);
+        } catch (err) {
+          resolve([]);
         }
-        resolve(extractedLines);
-      } catch (err) {
-        console.error("OCR 실행 중 에러:", err);
-        resolve([]);
-      }
+      };
+      img.src = URL.createObjectURL(file);
     });
   }
 
@@ -298,16 +286,16 @@
       formData.append("image", selectedMainFile);
 
       if (currentMode === "AD") {
-        document.getElementById('loadingText').innerText = "OCR + AI 하이브리드 검수 진행 중...";
+        document.getElementById('loadingText').innerText = "Tesseract + AI 하이브리드 검수 진행 중...";
         
-        // 🚨 Tesseract 초벌 OCR 실행 & 퍼센트 출력
+        // 🚨 Tesseract 초벌 실행 (좌표 추출 특화)
         const ocrData = await runClientTesseractOCR(selectedMainFile);
         if (ocrData && ocrData.length > 0) {
           formData.append("tesseract_ocr", JSON.stringify(ocrData));
         }
 
         document.getElementById('loadingText').innerText = "2/2단계: AI 오타 필터링 & 법률 검증 중...";
-        document.getElementById('loadingSubText').innerText = "식약처 고시 및 법령 기준과 대조하고 있습니다.";
+        document.getElementById('loadingSubText').innerText = "Tesseract 데이터를 AI가 문맥에 맞게 교정하고 있습니다.";
       } else {
         document.getElementById('loadingText').innerText = "AI 정밀 라벨 판독 중...";
         document.getElementById('loadingSubText').innerText = "구글 서버 상태에 따라 5~15초 정도 소요될 수 있습니다.";
@@ -338,7 +326,7 @@
       <div class="card">
         <h2 style="color:var(--primary); margin-top:0;">📢 표시·광고법 정밀 검수 리포트</h2>
         <div style="background:#eff6ff; padding:10px; border-radius:6px; font-weight:bold; color:var(--primary); margin-bottom:15px; font-size:14px;">
-          ⚖️ ${result.law_status || '식약처 고시 기준 적용'} (AI 필터링 완료)
+          ⚖️ ${result.law_status || '식약처 고시 기준 적용'} (AI 교정 완료)
         </div>
         <div class="summary-box">
           <span class="badge high">상(무조건 수정): ${rs.high_count}건</span>
