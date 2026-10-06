@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LabelGuard AI - 통합 정밀 검수 시스템</title>
+  <!-- 📌 Tesseract.js v5 WebAssembly OCR 라이브러리 탑재 -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <style>
     :root {
       --primary: #2563eb;
@@ -92,8 +94,8 @@
 
 <div class="container">
   <div class="header">
-    <h1>LabelGuard AI (v12.2)</h1>
-    <p>국가법령정보 실시간 연동 & 스마트 스크롤 뷰어</p>
+    <h1>LabelGuard AI (v13.0)</h1>
+    <p>Tesseract.js 하이브리드 정밀 OCR & 표시광고법 검수</p>
   </div>
 
   <div class="card">
@@ -131,8 +133,8 @@
 
   <div class="card" id="loadingArea">
     <div class="spinner"></div>
-    <h3 style="margin:0; color:var(--primary);">국가법령 실시간 연동 및 판독 중...</h3>
-    <p style="color:var(--text-muted); font-size:14px;">서버 상태에 따라 5~15초 정도 소요될 수 있습니다.</p>
+    <h3 style="margin:0; color:var(--primary);" id="loadingText">Tesseract.js 브라우저 정밀 OCR 실행 중...</h3>
+    <p style="color:var(--text-muted); font-size:14px;" id="loadingSubText">이미지 픽셀 단위 글자 위치를 정밀 스캔하고 있습니다.</p>
   </div>
 
   <div id="resultArea" style="display: none;"></div>
@@ -202,26 +204,33 @@
     document.getElementById("resultArea").style.display = "none";
   }
 
-  async function sliceImageIntoBlocks(file, numBlocks = 5) {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        const blockHeight = img.height / numBlocks;
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        canvas.width = img.width;
-        canvas.height = blockHeight;
+  // 📌 [핵심] Tesseract.js로 브라우저에서 직접 정밀 텍스트 및 Y축 위치(%) 따내기
+  async function runClientTesseractOCR(file) {
+    return new Promise(async (resolve) => {
+      try {
+        const worker = await Tesseract.createWorker('kor+eng');
+        const ret = await worker.recognize(file);
+        await worker.terminate();
 
-        const base64Blocks = [];
-        for (let i = 0; i < numBlocks; i++) {
-          ctx.clearRect(0, 0, img.width, blockHeight);
-          ctx.drawImage(img, 0, i * blockHeight, img.width, blockHeight, 0, 0, img.width, blockHeight);
-          base64Blocks.push(canvas.toDataURL('image/jpeg', 0.8).split(',')[1]); 
+        const imgHeight = ret.data.image_height || 1000;
+        const extractedLines = [];
+
+        // 라인 단위로 텍스트와 정확한 Y% 위치 추출
+        if (ret.data && ret.data.lines) {
+          ret.data.lines.forEach(line => {
+            const text = line.text.trim();
+            if (text.length >= 2) { // 2글자 이상 의미있는 문구
+              const yTop = line.bbox.y0;
+              const yPercent = Math.min(100, Math.max(0, Math.round((yTop / imgHeight) * 100)));
+              extractedLines.push({ text: text, y_percent: yPercent });
+            }
+          });
         }
-        resolve(base64Blocks);
-      };
-      img.onerror = () => resolve([]); 
-      img.src = URL.createObjectURL(file);
+        resolve(extractedLines);
+      } catch (err) {
+        console.warn("Tesseract OCR fallback:", err);
+        resolve([]); // 실패 시 백엔드 Gemini OCR로 자동 전환
+      }
     });
   }
 
@@ -241,10 +250,12 @@
       formData.append("image", imageInput.files[0]);
 
       if (currentMode === "AD") {
-        const blocks = await sliceImageIntoBlocks(imageInput.files[0], 5);
-        if (blocks && blocks.length > 0) {
-          blocks.forEach((blockBase64, idx) => { formData.append(`block_${idx}`, blockBase64); });
+        document.getElementById('loadingText').innerText = "1/2단계: Tesseract.js 정밀 위치 스캔 중...";
+        const ocrData = await runClientTesseractOCR(imageInput.files[0]);
+        if (ocrData && ocrData.length > 0) {
+          formData.append("tesseract_ocr", JSON.stringify(ocrData));
         }
+        document.getElementById('loadingText').innerText = "2/2단계: 국가법령 대조 및 법률 위법성 판정 중...";
       } else if (docInput.files[0]) {
         formData.append("doc", docInput.files[0]);
       }
@@ -285,7 +296,6 @@
         
         <div class="ad-report-container">
           <div class="ad-image-pane" id="adImagePane">
-            <!-- 🚨 빨간색 포커스 띠와 배지가 완전히 제거된 클린 이미지 뷰어 -->
             <div class="single-img-wrap" id="singleImgWrap">
               <img src="${uploadedImageSrc}" id="targetAdImage" alt="광고 원본">
             </div>
@@ -306,7 +316,7 @@
               <span class="item-number-tag" style="background:${tagBg};">#${index + 1}</span>
               <strong style="font-size:16px; color:${tagBg}">[${item.level_kr}] ${item.issue}</strong>
             </div>
-            <span style="font-size:12px; color:var(--text-muted); font-weight:bold;">위치: ${item.block_name} (${yPercent}%) 🎯</span>
+            <span style="font-size:12px; color:var(--text-muted); font-weight:bold;">위치: 상단 ${yPercent}% 지점 🎯</span>
           </div>
           <div class="risk-text"><strong>검출 문구:</strong> "${item.target_text}"</div>
           <div style="font-size:14px; color:#334155; margin-bottom:8px;"><strong>단속 사유:</strong> ${item.reason}</div>
@@ -323,23 +333,18 @@
     }
   }
 
-  // 🎯 카드를 클릭할 때 이미지 위치로 스크롤만 부드럽게 시켜주는 함수 (띠 없음)
   function focusImageSection(index, yPercent) {
     const pane = document.getElementById('adImagePane');
     const img = document.getElementById('targetAdImage');
 
     if (!img || !pane) return;
 
-    // 현재 클릭된 카드만 테두리 하이라이트(파란색) 처리
     document.querySelectorAll('.risk-card').forEach(c => c.classList.remove('active-focus'));
     const activeCard = document.getElementById(`riskCard_${index}`);
     if (activeCard) activeCard.classList.add('active-focus');
 
-    // 이미지가 해당 비율(yPercent)만큼 스크롤되도록 중앙 계산
     const imgHeight = img.clientHeight;
     const targetScrollY = (imgHeight * (yPercent / 100)) - (pane.clientHeight / 2);
-
-    // 스크롤 이동
     pane.scrollTo({ top: Math.max(0, targetScrollY), behavior: 'smooth' });
   }
 
