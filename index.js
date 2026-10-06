@@ -1,390 +1,225 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LabelGuard AI - 통합 정밀 검수 시스템</title>
-  <!-- 📌 Tesseract.js v5 WebAssembly OCR 라이브러리 탑재 -->
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <style>
-    :root {
-      --primary: #2563eb;
-      --primary-hover: #1d4ed8;
-      --bg-color: #f3f4f6;
-      --card-bg: #ffffff;
-      --border: #d1d5db;
-      --text-main: #1f2937;
-      --text-muted: #6b7280;
-      --high-color: #dc2626;
-      --medium-color: #d97706;
-      --low-color: #2563eb;
+function arrayBufferToBase64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
+}
+
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+function parseAIJSON(raw) {
+  if (!raw) return null;
+  let str = typeof raw === "string" ? raw : JSON.stringify(raw);
+  str = str.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+  const start = str.indexOf('{');
+  const end = str.lastIndexOf('}');
+  if (start === -1 || end === -1 || end <= start) return null;
+  try { return JSON.parse(str.slice(start, end + 1)); } catch (e) { return null; }
+}
+
+async function fetchLatestLawInfo(lawApiKey) {
+  if (!lawApiKey) return "[기본 모드] 식약처 고시 『식품등의 표시기준』 적용 (LAW_API_KEY 미설정)";
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const lawUrl = `https://www.law.go.kr/DRF/lawSearch.do?OC=${lawApiKey}&target=admrul&query=${encodeURIComponent("식품등의 표시기준")}&type=XML`;
+    const res = await fetch(lawUrl, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) return "[기본 모드] 법령 서버 응답 지연";
+    let xmlText = await res.text();
+    xmlText = xmlText.replace(/<!\[CDATA\[\vert{}\]\]>/g, "");
+
+    const titleMatch = xmlText.match(/<행정규칙명>(.*?)<\/행정규칙명>/) || xmlText.match(/<법령명>(.*?)<\/법령명>/);
+    const dateMatch = xmlText.match(/<시행일자>(.*?)<\/시행일자>/);
+    const numMatch = xmlText.match(/<발령번호>(.*?)<\/발령번호>/);
+
+    const title = titleMatch ? titleMatch[1].trim() : "식품등의 표시기준";
+    const date = dateMatch ? dateMatch[1].trim() : "최신";
+    const num = numMatch ? numMatch[1].trim() : "";
+
+    return `[국가법령정보센터 실시간 동기화] 식약처 고시 『${title}』 (시행일자: ${date}${num ? `, 제${num}호` : ''})`;
+  } catch (e) {
+    return "[기본 모드] 식약처 고시 『식품등의 표시기준』 적용";
+  }
+}
+
+const AD_RULES_DICTIONARY = [
+  {
+    id: "RULE_INGREDIENT_PERCENT",
+    keywords: ["등심", "통등심", "안심", "찹쌀", "한우", "돼지고기", "삼겹살", "새우", "치즈", "국산", "국내산"],
+    exclude_keywords: ["%", "퍼센트", "g", "함유량"],
+    level: "HIGH",
+    issue: "원재료명 강조 표기 시 함량(%) 누락",
+    reason: "상세페이지 카피에서 특정 원재료를 전면에 강조하고 있으나, 배합 비율(%)이 명시되지 않아 식품표시광고법 위반 위험이 있습니다.",
+    getAction: (text) => {
+      let matched = "원재료";
+      if (text.includes("등심")) matched = "돼지고기(등심)";
+      else if (text.includes("찹쌀")) matched = "찹쌀";
+      else if (text.includes("새우")) matched = "새우";
+      return `강조된 문구 주변 또는 메인 강조 영역에 '${matched} 00%'와 같이 정확한 함량을 명확히 표기하세요.`;
     }
-    body { font-family: 'Pretendard', -apple-system, sans-serif; background-color: var(--bg-color); color: var(--text-main); margin: 0; padding: 20px; line-height: 1.5; }
-    .container { max-width: 1200px; margin: 0 auto; }
-    .header { text-align: center; margin-bottom: 30px; }
-    .header h1 { margin: 0; color: var(--primary); font-size: 28px; }
-    .header p { color: var(--text-muted); margin-top: 5px; }
-    
-    .card { background: var(--card-bg); border-radius: 12px; padding: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid #e5e7eb; }
-    
-    .mode-selector { display: flex; gap: 10px; margin-bottom: 20px; }
-    .mode-btn { flex: 1; padding: 15px; border: 2px solid var(--border); background: #f9fafb; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; color: var(--text-muted); transition: all 0.2s; }
-    .mode-btn.active { border-color: var(--primary); background: #eff6ff; color: var(--primary); }
-    .mode-btn:hover { background: #f3f4f6; }
-    
-    .form-group { margin-bottom: 20px; }
-    .form-group label { display: block; font-weight: bold; margin-bottom: 8px; }
-    .drop-zone { border: 2px dashed var(--border); border-radius: 8px; padding: 30px; text-align: center; background: #fafafa; cursor: pointer; transition: all 0.2s; }
-    .drop-zone:hover, .drop-zone.dragover { border-color: var(--primary); background-color: #eff6ff; }
-    .drop-zone-icon { font-size: 36px; margin-bottom: 8px; color: var(--primary); }
-    .file-info { margin-top: 10px; font-weight: bold; color: var(--primary); font-size: 14px; word-break: break-all; }
+  },
+  {
+    id: "RULE_BEST_PROOF_REQUIRED",
+    keywords: ["특제", "특제 소스", "깨끗한", "최상", "최고", "1위", "특허", "시그니처", "가장 많은", "원물 그대로", "풍부한", "노하우", "비법", "전문점의 맛"],
+    level: "MEDIUM",
+    issue: "객관적 실증이 필요한 최상급/우수성 표현",
+    reason: "객관적 실증 자료(산가 측정치, 성분 분석표 등) 없이 최상급 또는 우수성을 주장할 경우 식약처 실증자료 제출 명령 대상이 될 수 있습니다.",
+    getAction: () => "공인 시험성적서 등 실증 자료를 확보하거나, '깔끔하게 튀겨낸', '인기 소스' 등 일반적 표현으로 완화하세요."
+  },
+  {
+    id: "RULE_COOKING_EXAMPLE",
+    keywords: ["조리예", "연출된", "이미지"],
+    level: "LOW",
+    issue: "조리예 문구 표기 상태",
+    reason: "소비자 오인 방지용 '조리예' 문구가 존재하나 글자 크기가 작아 식별이 어려울 수 있습니다.",
+    getAction: () => "사진 하단 '상기 이미지는 조리예입니다' 문구의 시인성을 확보하세요."
+  }
+];
 
-    .btn-submit { display: block; width: 100%; padding: 15px; background: var(--primary); color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; transition: 0.2s; margin-top: 10px; }
-    .btn-submit:hover { background: var(--primary-hover); }
-    .btn-submit:disabled { background: #9ca3af; cursor: not-allowed; }
+function processLabelRulesEngine(aiData, lawStr) {
+  if (!aiData) return null;
+  const label = aiData.label_data || {};
+  let passedItems = [];
+  let failedItems = [];
 
-    #loadingArea { text-align: center; padding: 40px; display: none; }
-    .spinner { border: 4px solid #f3f3f3; border-top: 4px solid var(--primary); border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px auto; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  const foodRules = [
+    { key: "product_name", name: "제품명" }, { key: "food_type", name: "식품유형" },
+    { key: "business_name", name: "영업소 명칭" }, { key: "address", name: "소재지 주소" },
+    { key: "expiration_date", name: "소비기한" }, { key: "net_weight", name: "내용량" },
+    { key: "ingredients", name: "원재료명" }, { key: "nutrition", name: "영양성분" },
+    { key: "package_material", name: "용기포장재질" }, { key: "caution", name: "주의사항" }
+  ];
 
-    table { width: 100%; border-collapse: collapse; margin-top: 15px; margin-bottom: 25px; font-size: 14px; }
-    th, td { border: 1px solid #e5e7eb; padding: 12px; text-align: left; }
-    th { background-color: #f9fafb; font-weight: bold; }
-    .status-pass { color: #059669; font-weight: bold; }
-    .status-fail { color: #dc2626; font-weight: bold; }
-
-    .summary-box { display: flex; gap: 10px; margin-bottom: 20px; }
-    .badge { padding: 8px 15px; border-radius: 20px; font-weight: bold; font-size: 14px; }
-    .badge.high { background: #fee2e2; color: var(--high-color); border: 1px solid #fca5a5; }
-    .badge.medium { background: #fef3c7; color: var(--medium-color); border: 1px solid #fcd34d; }
-    .badge.low { background: #eff6ff; color: var(--low-color); border: 1px solid #bfdbfe; }
-
-    .ad-report-container { display: flex; gap: 24px; align-items: flex-start; margin-top: 20px; }
-    .ad-image-pane { flex: 0 0 450px; position: sticky; top: 20px; background: #1e293b; border: 2px solid #334155; border-radius: 12px; padding: 10px; max-height: 80vh; overflow-y: auto; scroll-behavior: smooth; }
-    .single-img-wrap { position: relative; width: 100%; font-size: 0; }
-    .single-img-wrap img { width: 100%; height: auto; display: block; border-radius: 6px; }
-
-    .ad-details-pane { flex: 1; }
-    .risk-card {
-      background: #ffffff;
-      border-radius: 10px;
-      padding: 18px;
-      margin-bottom: 16px;
-      border: 1px solid #e5e7eb;
-      cursor: pointer;
-      transition: transform 0.2s, box-shadow 0.2s;
-    }
-    .risk-card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 12px rgba(0,0,0,0.08);
-    }
-    .risk-card.active-focus {
-      border-width: 2px;
-      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3);
-    }
-    .risk-card.risk-high { border-left: 6px solid var(--high-color); }
-    .risk-card.risk-medium { border-left: 6px solid var(--medium-color); }
-    .risk-card.risk-low { border-left: 6px solid var(--low-color); }
-
-    .item-number-tag { color: white; font-size: 13px; font-weight: bold; padding: 3px 9px; border-radius: 12px; display: inline-block; }
-    .risk-text { font-size: 14px; background: rgba(241,245,249,0.8); padding: 10px; border-radius: 6px; margin: 10px 0; border: 1px dashed #cbd5e1; font-family: monospace; }
-  </style>
-</head>
-<body>
-
-<div class="container">
-  <div class="header">
-    <h1>LabelGuard AI (v13.0)</h1>
-    <p>Tesseract.js 하이브리드 정밀 OCR & 표시광고법 검수</p>
-  </div>
-
-  <div class="card">
-    <div class="mode-selector">
-      <button type="button" id="btnModeLabel" class="mode-btn active" onclick="setMode('LABEL')">
-        🏷️ 한글표시사항 검수
-      </button>
-      <button type="button" id="btnModeAd" class="mode-btn" onclick="setMode('AD')">
-        📢 상세페이지/광고 검수
-      </button>
-    </div>
-
-    <div class="form-group">
-      <label id="mainImageLabel">1. 검수할 한글표시사항 라벨 첨부 (필수)</label>
-      <div class="drop-zone" id="mainDropZone">
-        <div class="drop-zone-icon">📁</div>
-        <p class="drop-zone-text" id="mainDropZoneText">이미지를 클릭하거나 <strong>이곳으로 드래그하세요</strong></p>
-        <div class="file-info" id="mainFileInfo"></div>
-        <input type="file" id="imageFile" accept="image/*" style="display: none;">
-      </div>
-    </div>
-
-    <div class="form-group" id="docUploadGroup">
-      <label>2. 증빙서류 이미지 첨부 (선택: 사업자등록증 등)</label>
-      <div class="drop-zone" id="docDropZone">
-        <div class="drop-zone-icon">📄</div>
-        <p class="drop-zone-text" id="docDropZoneText">서류를 클릭하거나 <strong>이곳으로 드래그하세요</strong></p>
-        <div class="file-info" id="docFileInfo"></div>
-        <input type="file" id="docFile" accept="image/*" style="display: none;">
-      </div>
-    </div>
-
-    <button type="button" id="submitBtn" class="btn-submit" onclick="uploadAndInspect()">분석 시작하기</button>
-  </div>
-
-  <div class="card" id="loadingArea">
-    <div class="spinner"></div>
-    <h3 style="margin:0; color:var(--primary);" id="loadingText">Tesseract.js 브라우저 정밀 OCR 실행 중...</h3>
-    <p style="color:var(--text-muted); font-size:14px;" id="loadingSubText">이미지 픽셀 단위 글자 위치를 정밀 스캔하고 있습니다.</p>
-  </div>
-
-  <div id="resultArea" style="display: none;"></div>
-</div>
-
-<script>
-  let currentMode = "LABEL";
-  let uploadedImageSrc = "";
-  let riskDetailsData = [];
-
-  window.addEventListener('DOMContentLoaded', () => {
-    setupDropZone('mainDropZone', 'imageFile', 'mainFileInfo');
-    setupDropZone('docDropZone', 'docFile', 'docFileInfo');
+  foodRules.forEach(rule => {
+    const val = (label[rule.key] || "").trim();
+    if (val && !val.includes("없음") && !val.includes("누락")) passedItems.push({ name: rule.name, detail: val });
+    else failedItems.push({ item_name: rule.name, found_text: "누락", issue_reason: `${rule.name} 항목 누락`, how_to_improve: `${rule.name} 명시 필요` });
   });
 
-  function setupDropZone(dropZoneId, inputId, infoId) {
-    const dropZone = document.getElementById(dropZoneId);
-    const input = document.getElementById(inputId);
+  return {
+    inspect_mode: "LABEL",
+    law_status: lawStr,
+    summary: "가공식품 10대 필수 항목 검수 완료",
+    analyzed_summary: { product_name: aiData.product_name || "판독 완료", food_type: aiData.food_type || "분류 완료" },
+    passed_items: passedItems, failed_items: failedItems
+  };
+}
 
-    dropZone.addEventListener('click', () => input.click());
-    input.addEventListener('change', () => handleFileChange(input, infoId));
+// 📌 Tesseract 및 Gemini 혼합 검수 엔진
+function processAdRulesEngine(phrasesList, lawStr) {
+  let formattedRisks = [];
+  let highCount = 0; let mediumCount = 0; let lowCount = 0;
 
-    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-      dropZone.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
-    });
-    ['dragenter', 'dragover'].forEach(eventName => {
-      dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'), false);
-    });
-    ['dragleave', 'drop'].forEach(eventName => {
-      dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'), false);
-    });
+  phrasesList.forEach((item) => {
+    const text = item.text || "";
+    const yPercent = (typeof item.y_percent === "number") ? item.y_percent : 10;
 
-    dropZone.addEventListener('drop', (e) => {
-      const dt = e.dataTransfer;
-      if (dt && dt.files && dt.files.length > 0) {
-        input.files = dt.files;
-        handleFileChange(input, infoId);
+    AD_RULES_DICTIONARY.forEach(rule => {
+      if (rule.keywords.some(kw => text.includes(kw)) && (!rule.exclude_keywords || !rule.exclude_keywords.some(ex => text.includes(ex)))) {
+        if (rule.level === "HIGH") highCount++; else if (rule.level === "MEDIUM") mediumCount++; else lowCount++;
+        formattedRisks.push({
+          level: rule.level,
+          level_kr: rule.level === "HIGH" ? "상 (무조건 수정)" : (rule.level === "MEDIUM" ? "중 (수정 권장)" : "하 (참고)"),
+          y_percent: yPercent,
+          target_text: text, issue: rule.issue, reason: rule.reason, action: rule.getAction(text)
+        });
       }
-    }, false);
-  }
+    });
+  });
 
-  function handleFileChange(input, infoId) {
-    const infoContainer = document.getElementById(infoId);
-    if (input.files && input.files[0]) {
-      const file = input.files[0];
-      infoContainer.innerText = `선택된 파일: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`;
-      if (input.id === 'imageFile') uploadedImageSrc = URL.createObjectURL(file);
-    } else {
-      infoContainer.innerText = '';
-    }
-  }
+  // 상(HIGH) -> 중(MEDIUM) -> 하(LOW) 순 정렬
+  const priorityMap = { "HIGH": 1, "MEDIUM": 2, "LOW": 3 };
+  formattedRisks.sort((a, b) => (priorityMap[a.level] || 99) - (priorityMap[b.level] || 99) || a.y_percent - b.y_percent);
 
-  function setMode(mode) {
-    currentMode = mode;
-    document.getElementById("btnModeLabel").classList.toggle("active", mode === "LABEL");
-    document.getElementById("btnModeAd").classList.toggle("active", mode === "AD");
+  return {
+    inspect_mode: "AD", law_status: lawStr,
+    product_info: { product_name: "상세페이지 검수 완료", detected_category: "식품 광고" },
+    risk_summary: { total_issues: formattedRisks.length, high_count: highCount, medium_count: mediumCount, low_count: lowCount },
+    risk_details: formattedRisks
+  };
+}
+
+export default {
+  async fetch(request, env) {
+    const corsHeaders = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" };
+    if (request.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
     
-    const docGroup = document.getElementById("docUploadGroup");
-    const mainLabel = document.getElementById("mainImageLabel");
-    if(mode === "AD") {
-      docGroup.style.display = "none";
-      mainLabel.innerText = "1. 검수할 광고/상세페이지 이미지 첨부 (필수)";
-    } else {
-      docGroup.style.display = "block";
-      mainLabel.innerText = "1. 검수할 한글표시사항 라벨 첨부 (필수)";
-    }
-    document.getElementById("resultArea").style.display = "none";
-  }
+    const geminiApiKey = (env.GEMINI_API_KEY || "").trim();
+    const lawApiKey = (env.LAW_API_KEY || "").trim();
 
-  // 📌 [핵심] Tesseract.js로 브라우저에서 직접 정밀 텍스트 및 Y축 위치(%) 따내기
-  async function runClientTesseractOCR(file) {
-    return new Promise(async (resolve) => {
+    if (request.method === "POST") {
       try {
-        const worker = await Tesseract.createWorker('kor+eng');
-        const ret = await worker.recognize(file);
-        await worker.terminate();
+        if (!geminiApiKey) throw new Error("서버 GEMINI_API_KEY가 설정되지 않았습니다.");
 
-        const imgHeight = ret.data.image_height || 1000;
-        const extractedLines = [];
+        const formData = await request.formData();
+        const inspectMode = (formData.get("mode") || "LABEL").toUpperCase();
+        const labelFile = formData.get("image");
+        const tesseractOcrRaw = formData.get("tesseract_ocr");
 
-        // 라인 단위로 텍스트와 정확한 Y% 위치 추출
-        if (ret.data && ret.data.lines) {
-          ret.data.lines.forEach(line => {
-            const text = line.text.trim();
-            if (text.length >= 2) { // 2글자 이상 의미있는 문구
-              const yTop = line.bbox.y0;
-              const yPercent = Math.min(100, Math.max(0, Math.round((yTop / imgHeight) * 100)));
-              extractedLines.push({ text: text, y_percent: yPercent });
+        if (!labelFile) throw new Error("분석할 이미지가 전송되지 않았습니다.");
+        const labelBuffer = await labelFile.arrayBuffer();
+        const lawHeaderStr = await fetchLatestLawInfo(lawApiKey);
+
+        let finalPhrases = [];
+
+        if (inspectMode === "AD") {
+          // 📌 1순위: Tesseract.js가 전달한 정밀 Y% 문구 사용
+          if (tesseractOcrRaw) {
+            try { finalPhrases = JSON.parse(tesseractOcrRaw); } catch (e) {}
+          }
+
+          // Tesseract가 빈 결과를 냈을 경우 Gemini OCR로 Fallback
+          if (!finalPhrases || finalPhrases.length === 0) {
+            let promptText = `상세페이지 전체 문구를 빠짐없이 추출하고 y_percent(0~100) 위치를 반환하세요.\n{"detected_phrases":[{"text":"문구","y_percent": 10}]}`;
+            const contentsParts = [
+              { text: promptText },
+              { inlineData: { mimeType: labelFile.type || "image/jpeg", data: arrayBufferToBase64(labelBuffer) } }
+            ];
+
+            const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
+            const geminiRes = await fetch(endpoint, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ contents: [{ parts: contentsParts }], generationConfig: { responseMimeType: "application/json", temperature: 0.0 } })
+            });
+
+            if (geminiRes.ok) {
+              const data = await geminiRes.json();
+              const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+              const parsed = parseAIJSON(rawText);
+              finalPhrases = parsed?.detected_phrases || [];
             }
+          }
+
+          const finalReport = processAdRulesEngine(finalPhrases, lawHeaderStr);
+          return new Response(JSON.stringify({ success: true, result: finalReport }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
+
+        } else {
+          // 라벨 모드
+          const contentsParts = [
+            { text: `한글표시사항 라벨 텍스트를 추출해 JSON으로 응답하세요.\n기준: ${lawHeaderStr}\n{"category":"FOOD","product_name":"명","food_type":"유형","label_data":{"product_name":"","food_type":"","business_name":"","address":"","expiration_date":"","net_weight":"","ingredients":"","nutrition":"","package_material":"","caution":""},"doc_data":{"address":""}}` },
+            { inlineData: { mimeType: labelFile.type || "image/jpeg", data: arrayBufferToBase64(labelBuffer) } }
+          ];
+
+          const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
+          const geminiRes = await fetch(endpoint, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contents: [{ parts: contentsParts }], generationConfig: { responseMimeType: "application/json", temperature: 0.0 } })
           });
+
+          if (!geminiRes.ok) throw new Error("Gemini API 호출 실패");
+          const data = await geminiRes.json();
+          const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+          const aiExtractedData = parseAIJSON(rawText);
+
+          const finalReport = processLabelRulesEngine(aiExtractedData, lawHeaderStr);
+          return new Response(JSON.stringify({ success: true, result: finalReport }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
         }
-        resolve(extractedLines);
+
       } catch (err) {
-        console.warn("Tesseract OCR fallback:", err);
-        resolve([]); // 실패 시 백엔드 Gemini OCR로 자동 전환
+        return new Response(JSON.stringify({ success: false, error: err.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" } });
       }
-    });
-  }
-
-  async function uploadAndInspect() {
-    const imageInput = document.getElementById('imageFile');
-    const docInput = document.getElementById('docFile');
-    if (!imageInput.files[0]) return alert("검수할 메인 이미지를 첨부해주세요.");
-
-    uploadedImageSrc = URL.createObjectURL(imageInput.files[0]);
-    document.getElementById('submitBtn').disabled = true;
-    document.getElementById('resultArea').style.display = "none";
-    document.getElementById('loadingArea').style.display = "block";
-
-    try {
-      const formData = new FormData();
-      formData.append("mode", currentMode);
-      formData.append("image", imageInput.files[0]);
-
-      if (currentMode === "AD") {
-        document.getElementById('loadingText').innerText = "1/2단계: Tesseract.js 정밀 위치 스캔 중...";
-        const ocrData = await runClientTesseractOCR(imageInput.files[0]);
-        if (ocrData && ocrData.length > 0) {
-          formData.append("tesseract_ocr", JSON.stringify(ocrData));
-        }
-        document.getElementById('loadingText').innerText = "2/2단계: 국가법령 대조 및 법률 위법성 판정 중...";
-      } else if (docInput.files[0]) {
-        formData.append("doc", docInput.files[0]);
-      }
-
-      const response = await fetch("https://qsms.park-chanho.workers.dev", { method: "POST", body: formData });
-      const data = await response.json();
-      if (!data.success) throw new Error(data.error);
-
-      if (data.result.inspect_mode === "AD") renderAdReport(data.result);
-      else renderLabelReport(data.result);
-      
-      document.getElementById('resultArea').style.display = "block";
-    } catch (err) {
-      alert("분석 실패:\n" + err.message);
-    } finally {
-      document.getElementById('submitBtn').disabled = false;
-      document.getElementById('loadingArea').style.display = "none";
     }
   }
-
-  function renderAdReport(result) {
-    const rs = result.risk_summary;
-    riskDetailsData = result.risk_details || [];
-
-    let html = `
-      <div class="card">
-        <h2 style="color:var(--primary); margin-top:0;">📢 표시·광고법 정밀 검수 리포트</h2>
-        <div style="background:#eff6ff; padding:10px; border-radius:6px; font-weight:bold; color:var(--primary); margin-bottom:15px; font-size:14px;">
-          ⚖️ ${result.law_status || '식약처 고시 기준 적용'}
-        </div>
-        <div class="summary-box">
-          <span class="badge high">상(무조건 수정): ${rs.high_count}건</span>
-          <span class="badge medium">중(수정 권장): ${rs.medium_count}건</span>
-          <span class="badge low">하(선택 참고): ${rs.low_count}건</span>
-        </div>
-        <p style="font-size:13px; color:var(--text-muted); margin-bottom:10px;">👉 오른쪽 카드를 클릭하면 왼쪽 원본 이미지가 해당 위치로 부드럽게 자동 스크롤됩니다.</p>
-        <hr style="border:0; border-top:1px solid #e5e7eb; margin:15px 0;">
-        
-        <div class="ad-report-container">
-          <div class="ad-image-pane" id="adImagePane">
-            <div class="single-img-wrap" id="singleImgWrap">
-              <img src="${uploadedImageSrc}" id="targetAdImage" alt="광고 원본">
-            </div>
-          </div>
-
-          <div class="ad-details-pane">
-    `;
-
-    riskDetailsData.forEach((item, index) => {
-      const cardClass = item.level === "HIGH" ? "risk-high" : (item.level === "MEDIUM" ? "risk-medium" : "risk-low");
-      const tagBg = item.level === "HIGH" ? "var(--high-color)" : (item.level === "MEDIUM" ? "var(--medium-color)" : "var(--low-color)");
-      const yPercent = item.y_percent || 10;
-
-      html += `
-        <div class="risk-card ${cardClass}" id="riskCard_${index}" onclick="focusImageSection(${index}, ${yPercent})">
-          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
-            <div style="display:flex; align-items:center; gap:8px;">
-              <span class="item-number-tag" style="background:${tagBg};">#${index + 1}</span>
-              <strong style="font-size:16px; color:${tagBg}">[${item.level_kr}] ${item.issue}</strong>
-            </div>
-            <span style="font-size:12px; color:var(--text-muted); font-weight:bold;">위치: 상단 ${yPercent}% 지점 🎯</span>
-          </div>
-          <div class="risk-text"><strong>검출 문구:</strong> "${item.target_text}"</div>
-          <div style="font-size:14px; color:#334155; margin-bottom:8px;"><strong>단속 사유:</strong> ${item.reason}</div>
-          <div style="font-size:14px; color:var(--primary); font-weight:bold;">👉 <strong>조치 가이드:</strong> ${item.action}</div>
-        </div>
-      `;
-    });
-
-    html += `</div></div></div>`;
-    document.getElementById("resultArea").innerHTML = html;
-
-    if (riskDetailsData.length > 0) {
-      setTimeout(() => focusImageSection(0, riskDetailsData[0].y_percent || 10), 300);
-    }
-  }
-
-  function focusImageSection(index, yPercent) {
-    const pane = document.getElementById('adImagePane');
-    const img = document.getElementById('targetAdImage');
-
-    if (!img || !pane) return;
-
-    document.querySelectorAll('.risk-card').forEach(c => c.classList.remove('active-focus'));
-    const activeCard = document.getElementById(`riskCard_${index}`);
-    if (activeCard) activeCard.classList.add('active-focus');
-
-    const imgHeight = img.clientHeight;
-    const targetScrollY = (imgHeight * (yPercent / 100)) - (pane.clientHeight / 2);
-    pane.scrollTo({ top: Math.max(0, targetScrollY), behavior: 'smooth' });
-  }
-
-  function renderLabelReport(result) {
-    let html = `
-      <div class="card">
-        <h2 style="color:var(--primary); margin-top:0;">🏷️ 한글표시사항 정밀 검수 리포트</h2>
-        <div style="background:#eff6ff; padding:10px; border-radius:6px; font-weight:bold; color:var(--primary); margin-bottom:15px; font-size:14px;">
-          ⚖️ ${result.law_status || '식약처 고시 기준 적용'}
-        </div>
-        <p><strong>총평:</strong> ${result.summary}</p>
-        <p><strong>제품명:</strong> ${result.analyzed_summary.product_name} | <strong>식품유형:</strong> ${result.analyzed_summary.food_type}</p>
-        
-        <h3 style="margin-top:25px;">✅ 1. 법정 필수 표시항목 (적합)</h3>
-        <table>
-          <thead><tr><th width="30%">필수 항목명</th><th width="15%">상태</th><th>식별된 내용</th></tr></thead>
-          <tbody>
-    `;
-    
-    if (!result.passed_items || result.passed_items.length === 0) html += `<tr><td colspan="3" style="text-align:center;">적합 항목 없음</td></tr>`;
-    else result.passed_items.forEach(item => { html += `<tr><td>${item.name}</td><td class="status-pass">적합</td><td>${item.detail}</td></tr>`; });
-    html += `</tbody></table>`;
-
-    html += `<h3>🚨 2. 필수항목 위반 및 누락</h3><table><thead><tr><th width="20%">항목명</th><th width="30%">위반 사유</th><th>조치 가이드</th></tr></thead><tbody>`;
-    if (!result.failed_items || result.failed_items.length === 0) html += `<tr><td colspan="3" style="text-align:center; color:#059669; font-weight:bold;">위반 및 누락 항목이 없습니다.</td></tr>`;
-    else result.failed_items.forEach(item => { html += `<tr><td class="status-fail">${item.item_name}</td><td>${item.issue_reason}</td><td>${item.how_to_improve}</td></tr>`; });
-    html += `</tbody></table>`;
-
-    if (result.cross_check && result.cross_check.length > 0) {
-      html += `<h3>🔍 3. 증빙서류 교차 대조 (Cross-Check)</h3><table><thead><tr><th width="20%">대조 항목</th><th width="15%">상태</th><th width="25%">라벨 표기값</th><th width="25%">증빙서류 값</th><th>비고</th></tr></thead><tbody>`;
-      result.cross_check.forEach(item => {
-        const statusClass = item.status === "match" ? "status-pass" : "status-fail";
-        html += `<tr><td>${item.item}</td><td class="${statusClass}">${item.status === "match" ? "일치" : "불일치"}</td><td>${item.label_value}</td><td>${item.doc_value}</td><td>${item.note}</td></tr>`;
-      });
-      html += `</tbody></table>`;
-    }
-    
-    html += `</div>`;
-    document.getElementById("resultArea").innerHTML = html;
-  }
-</script>
-</body>
-</html>
+};
