@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -20,8 +19,8 @@
 
     .card { background: var(--card-bg); border-radius: 12px; padding: 25px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; border: 1px solid #e5e7eb; }
 
-    .mode-selector { display: flex; gap: 10px; margin-bottom: 20px; }
-    .mode-btn { flex: 1; padding: 15px; border: 2px solid var(--border); background: #f9fafb; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; color: var(--text-muted); transition: all 0.2s; user-select: none; }
+    .mode-selector { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+    .mode-btn { flex: 1; min-width: 180px; padding: 15px; border: 2px solid var(--border); background: #f9fafb; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; color: var(--text-muted); transition: all 0.2s; user-select: none; }
     .mode-btn.active { border-color: var(--primary); background: #eff6ff; color: var(--primary); }
     .mode-btn:hover { background: #f3f4f6; }
 
@@ -32,6 +31,10 @@
     .drop-zone * { pointer-events: none; }
     .drop-zone-icon { font-size: 36px; margin-bottom: 8px; color: var(--primary); }
     .file-info { margin-top: 10px; font-weight: bold; color: var(--primary); font-size: 14px; word-break: break-all; }
+
+    .url-input { width: 100%; box-sizing: border-box; min-height: 110px; padding: 12px; border: 2px solid var(--border); border-radius: 8px; font-size: 14px; font-family: monospace; resize: vertical; }
+    .url-input:focus { outline: none; border-color: var(--primary); }
+    .hint { font-size: 13px; color: var(--text-muted); margin-top: 6px; }
 
     .deep-option { display: flex; align-items: flex-start; gap: 8px; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 12px; margin-bottom: 10px; font-size: 14px; }
     .deep-option input { margin-top: 4px; }
@@ -60,10 +63,12 @@
     .meta-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; font-size: 13px; color: #475569; margin-bottom: 15px; }
     .meta-box .note { color: #b45309; font-weight: bold; margin-top: 4px; }
     .warn-box { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; font-size: 14px; }
+    .section-title { margin: 0 0 10px 0; color: var(--primary); }
 
     .ad-report-container { display: flex; gap: 24px; align-items: flex-start; margin-top: 20px; }
     .ad-image-pane { flex: 0 0 450px; position: sticky; top: 20px; background: #1e293b; border: 2px solid #334155; border-radius: 12px; padding: 10px; max-height: 80vh; overflow-y: auto; }
-    .single-img-wrap { position: relative; width: 100%; font-size: 0; }
+    .img-caption { color: #94a3b8; font-size: 12px; font-weight: bold; padding: 6px 2px 4px; }
+    .single-img-wrap { position: relative; width: 100%; font-size: 0; margin-bottom: 8px; }
     .single-img-wrap img { width: 100%; height: auto; display: block; border-radius: 6px; }
     .pin { position: absolute; left: 0; right: 0; height: 0; border-top: 3px solid #facc15; pointer-events: none; display: none; }
     .pin.show { display: block; }
@@ -89,7 +94,7 @@
 
 <div class="container">
   <div class="header">
-    <h1>LabelGuard AI (v20)</h1>
+    <h1>LabelGuard AI (v21)</h1>
     <p>규칙 엔진 우선 + 필요할 때만 AI를 호출하는 하이브리드 검수 시스템</p>
   </div>
 
@@ -97,6 +102,7 @@
     <div class="mode-selector">
       <button type="button" id="btnModeLabel" class="mode-btn active">🏷️ 한글표시사항 검수</button>
       <button type="button" id="btnModeAd" class="mode-btn">📢 상세페이지/광고 검수</button>
+      <button type="button" id="btnModeUrl" class="mode-btn">🔗 URL로 한 번에 검수</button>
     </div>
 
     <div class="form-group" id="mainUploadGroup">
@@ -119,7 +125,13 @@
       </div>
     </div>
 
-    <label class="deep-option">
+    <div class="form-group" id="urlGroup" style="display:none;">
+      <label for="urlInput">상품 페이지 주소 또는 이미지 주소 (여러 개는 줄바꿈으로 구분)</label>
+      <textarea class="url-input" id="urlInput" placeholder="https://thebornmall.com/product/...&#10;https://theborn.speedgabia.com/eCommerce/bbaekcook/jangajjisoysauce.jpg"></textarea>
+      <div class="hint">현재 지원: 더본몰(thebornmall.com) 상품 페이지, theborn.speedgabia.com 이미지 주소. 페이지에서 이미지를 못 찾으면 이미지 주소를 직접 붙여넣으세요. 긴 이미지는 OCR에 수 분이 걸릴 수 있습니다.</div>
+    </div>
+
+    <label class="deep-option" id="deepGroup">
       <input type="checkbox" id="deepMode">
       <span><strong>정밀 모드 (AI에 원본 이미지 첨부)</strong>
         <small>OCR 신뢰도가 낮은 문구까지 AI가 이미지를 보고 재판독합니다. 토큰이 더 소모되므로 결과가 이상할 때만 켜세요.</small>
@@ -142,11 +154,15 @@
   // ===================== 설정 =====================
   const API_URL = "https://qsms.park-chanho.workers.dev";
   const MAX_FILE_MB = 15;
-  const SLICE_H = 1600;      // OCR 분할 높이(px)
-  const SLICE_OVERLAP = 80;  // 분할 겹침(px)
+  const SLICE_H = 1600;
+  const SLICE_OVERLAP = 80;
   const MIN_W = 1500, MAX_W = 2200;
-  const MIN_LINE_CONF = 30;  // 이보다 낮은 줄은 쓰레기로 보고 버림
+  const MIN_LINE_CONF = 30;
   const UPLOAD_MAX_W = 1400, UPLOAD_MAX_H = 16000;
+  const MAX_URL_IMAGES = 30;
+  const URL_MIN_W = 1200;          // URL 모드: 작은 이미지만 확대 (속도 우선)
+  const SKIP_IMG_W = 300, SKIP_IMG_H = 120; // 이보다 작은 이미지는 아이콘으로 보고 건너뜀
+  const LABEL_KEYS = ["원재료명", "영양성분", "식품유형", "소비기한", "내용량", "제조원", "포장재질", "주의사항", "품목보고번호", "보관방법"];
 
   // ===================== 상태 =====================
   let currentMode = "LABEL";
@@ -154,6 +170,7 @@
   let riskDetailsData = [];
   let selectedMainFile = null;
   let selectedDocFile = null;
+  let urlObjectUrls = [];
 
   let ocrWorkerPromise = null;
   let progressHandler = null;
@@ -174,10 +191,16 @@
   // ===================== 모드 전환 =====================
   function setMode(mode) {
     currentMode = mode;
+    const isAd = mode === "AD", isUrl = mode === "URL";
     document.getElementById("btnModeLabel").className = mode === "LABEL" ? "mode-btn active" : "mode-btn";
-    document.getElementById("btnModeAd").className = mode === "AD" ? "mode-btn active" : "mode-btn";
-    const isAd = mode === "AD";
-    document.getElementById("docUploadGroup").style.display = isAd ? "none" : "block";
+    document.getElementById("btnModeAd").className = isAd ? "mode-btn active" : "mode-btn";
+    document.getElementById("btnModeUrl").className = isUrl ? "mode-btn active" : "mode-btn";
+
+    document.getElementById("mainUploadGroup").style.display = isUrl ? "none" : "block";
+    document.getElementById("docUploadGroup").style.display = mode === "LABEL" ? "block" : "none";
+    document.getElementById("urlGroup").style.display = isUrl ? "block" : "none";
+    document.getElementById("deepGroup").style.display = isUrl ? "none" : "flex";
+
     document.getElementById("mainImageLabel").innerText = isAd
       ? "1. 검수할 상세페이지 / 광고 이미지 첨부 (필수)"
       : "1. 검수할 한글표시사항 라벨 첨부 (필수)";
@@ -191,6 +214,7 @@
   document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btnModeLabel').addEventListener('click', () => setMode('LABEL'));
     document.getElementById('btnModeAd').addEventListener('click', () => setMode('AD'));
+    document.getElementById('btnModeUrl').addEventListener('click', () => setMode('URL'));
     document.getElementById('submitBtn').addEventListener('click', uploadAndInspect);
     setupDropZone('mainDropZone', 'imageFile', 'mainFileInfo', 'MAIN');
     setupDropZone('docDropZone', 'docFile', 'docFileInfo', 'DOC');
@@ -235,7 +259,6 @@
   function getOcrWorker() {
     if (!ocrWorkerPromise) {
       if (typeof Tesseract === 'undefined') return Promise.reject(new Error("Tesseract 라이브러리를 불러오지 못했습니다."));
-      // 한글 + 영문/숫자를 함께 인식
       ocrWorkerPromise = Tesseract.createWorker('kor+eng', 1, {
         logger: (m) => { if (progressHandler) progressHandler(m); }
       }).catch((e) => { ocrWorkerPromise = null; throw e; });
@@ -243,7 +266,6 @@
     return ocrWorkerPromise;
   }
 
-  // 흑백 + 대비 보정
   function enhance(ctx, w, h) {
     const img = ctx.getImageData(0, 0, w, h);
     const d = img.data;
@@ -266,14 +288,22 @@
     return new Promise((res) => c.toBlob(res, 'image/jpeg', 0.85));
   }
 
-  async function runClientOCR(file, mode) {
-    const bmp = await createImageBitmap(file);
-    const scale = bmp.width < MIN_W ? MIN_W / bmp.width : (bmp.width > MAX_W ? MAX_W / bmp.width : 1);
+  // opts: { minW, prefix, noUpload, skipSmall }
+  async function runClientOCR(source, mode, opts = {}) {
+    const minW = opts.minW || MIN_W;
+    const prefix = opts.prefix || "";
+    const bmp = await createImageBitmap(source);
+
+    if (opts.skipSmall && (bmp.width < SKIP_IMG_W || bmp.height < SKIP_IMG_H)) {
+      bmp.close && bmp.close();
+      return { lines: [], uploadBlob: null, skipped: true };
+    }
+
+    const scale = bmp.width < minW ? minW / bmp.width : (bmp.width > MAX_W ? MAX_W / bmp.width : 1);
     const W = Math.round(bmp.width * scale);
     const H = Math.round(bmp.height * scale);
 
     const worker = await getOcrWorker();
-    // 라벨(빽빽한 표)은 단일 블록(6), 상세페이지는 자동 레이아웃(3)
     await worker.setParameters({
       tessedit_pageseg_mode: mode === 'LABEL' ? '6' : '3',
       preserve_interword_spaces: '1'
@@ -291,9 +321,9 @@
       const { top, sh } = slices[i];
       progressHandler = (m) => {
         if (m.status === 'recognizing text') {
-          setLoading(null, `1단계: 텍스트 스캔 중 (${i + 1}/${slices.length} 구간) ${Math.round(m.progress * 100)}%`);
+          setLoading(null, `${prefix}텍스트 스캔 중 (${i + 1}/${slices.length} 구간) ${Math.round(m.progress * 100)}%`);
         } else {
-          setLoading(null, `OCR 엔진 준비 중 (${m.status})...`);
+          setLoading(null, `${prefix}OCR 엔진 준비 중 (${m.status})...`);
         }
       };
 
@@ -313,7 +343,6 @@
         const yAbs = top + (line.bbox.y0 + line.bbox.y1) / 2;
         const y = Math.min(99, Math.max(1, Math.round((yAbs / H) * 100)));
         const key = squash(text);
-        // 구간 겹침으로 생기는 중복 제거
         if (lines.some((l) => squash(l.text) === key && Math.abs(l.y_percent - y) <= 2)) return;
         lines.push({ text, y_percent: y, conf });
       });
@@ -321,19 +350,37 @@
     }
     progressHandler = null;
 
-    const uploadBlob = await makeUploadBlob(bmp);
+    const uploadBlob = opts.noUpload ? null : await makeUploadBlob(bmp);
     bmp.close && bmp.close();
-    return { lines, uploadBlob };
+    lines.sort((a, b) => a.y_percent - b.y_percent);
+    return { lines, uploadBlob, skipped: false };
   }
 
-  // ===================== 검수 실행 =====================
+  // ===================== 실행 분기 =====================
   async function uploadAndInspect() {
+    if (currentMode === "URL") return inspectUrls();
+    return inspectFile();
+  }
+
+  function lockUi(on) {
+    document.getElementById('submitBtn').disabled = on;
+    if (on) document.getElementById('resultArea').style.display = "none";
+    document.getElementById('loadingArea').style.display = on ? "block" : "none";
+  }
+
+  async function postInspect(formData) {
+    const response = await fetch(API_URL, { method: "POST", body: formData });
+    let data;
+    try { data = await response.json(); } catch (e) { throw new Error("서버 응답을 해석하지 못했습니다. (HTTP " + response.status + ")"); }
+    if (!data.success) throw new Error(data.error || "알 수 없는 서버 오류");
+    return data.result;
+  }
+
+  // ===================== 파일 업로드 검수 (기존 모드) =====================
+  async function inspectFile() {
     if (!selectedMainFile) return alert("검수할 이미지를 첨부해주세요.");
     const deep = document.getElementById('deepMode').checked;
-
-    document.getElementById('submitBtn').disabled = true;
-    document.getElementById('resultArea').style.display = "none";
-    document.getElementById('loadingArea').style.display = "block";
+    lockUi(true);
 
     let stage = "OCR";
     try {
@@ -352,68 +399,198 @@
       formData.append("mode", currentMode);
       formData.append("deep", deep ? "1" : "0");
       formData.append("tesseract_ocr", JSON.stringify(ocr.lines));
-      // 이미지는 AI에 실제로 필요할 수 있는 경우(라벨/정밀 모드)에만 전송
       if (ocr.uploadBlob && (currentMode === "LABEL" || deep)) formData.append("image", ocr.uploadBlob, "image.jpg");
       if (currentMode === "LABEL" && selectedDocFile) formData.append("doc", selectedDocFile);
 
-      const response = await fetch(API_URL, { method: "POST", body: formData });
-      let data;
-      try { data = await response.json(); } catch (e) { throw new Error("서버 응답을 해석하지 못했습니다. (HTTP " + response.status + ")"); }
-      if (!data.success) throw new Error(data.error || "알 수 없는 서버 오류");
-
-      if (data.result.inspect_mode === "AD") renderAdReport(data.result);
-      else renderLabelReport(data.result);
-      document.getElementById('resultArea').style.display = "block";
+      const result = await postInspect(formData);
+      const area = document.getElementById('resultArea');
+      if (result.inspect_mode === "AD") {
+        area.innerHTML = `<div class="card">${adSectionHtml(result, [uploadedImageSrc], "📢 표시·광고법 정밀 검수 리포트")}</div>`;
+        bindAdInteractions([uploadedImageSrc]);
+      } else {
+        area.innerHTML = `<div class="card">${labelSectionHtml(result, "🏷️ 한글표시사항 정밀 검수 리포트")}</div>`;
+      }
+      area.style.display = "block";
     } catch (err) {
       alert((stage === "OCR" ? "[OCR 단계] " : "[서버 단계] ") + err.message);
     } finally {
-      document.getElementById('submitBtn').disabled = false;
-      document.getElementById('loadingArea').style.display = "none";
+      lockUi(false);
+    }
+  }
+
+  // ===================== URL 일괄 검수 =====================
+  const isImageUrl = (u) => /\.(jpe?g|png|webp|gif)(\?|#|$)/i.test(u.split(/[?#]/)[0] + (u.includes('?') ? '?' : ''));
+
+  function labelHitKeys(text) {
+    const s = squash(text);
+    return LABEL_KEYS.filter((k) => s.includes(k));
+  }
+
+  // 라벨 영역 추정: 라벨 키워드가 3종 이상 모인 이미지 중 가장 많은 이미지의 해당 구간
+  function classifyLines(imageLines) {
+    let best = { idx: -1, keys: 0 };
+    imageLines.forEach((lines, idx) => {
+      const keys = new Set();
+      lines.forEach((l) => labelHitKeys(l.text).forEach((k) => keys.add(k)));
+      if (keys.size >= 3 && keys.size > best.keys) best = { idx, keys: keys.size };
+    });
+
+    imageLines.forEach((lines) => lines.forEach((l) => { l.kind = "AD"; }));
+    if (best.idx < 0) return { labelImage: -1, labelLineCount: 0 };
+
+    const lines = imageLines[best.idx];
+    const hitIdx = [];
+    lines.forEach((l, i) => { if (labelHitKeys(l.text).length > 0) hitIdx.push(i); });
+    const start = Math.max(0, Math.min(...hitIdx) - 1);
+    const end = Math.min(lines.length - 1, Math.max(...hitIdx) + 12);
+    for (let i = start; i <= end; i++) lines[i].kind = "LABEL";
+    return { labelImage: best.idx, labelLineCount: end - start + 1 };
+  }
+
+  async function inspectUrls() {
+    const inputs = document.getElementById('urlInput').value.split(/\s+/).map((s) => s.trim()).filter(Boolean);
+    if (inputs.length === 0) return alert("상품 페이지 주소 또는 이미지 주소를 입력해주세요.");
+    if (inputs.some((u) => !/^https?:\/\//i.test(u))) return alert("주소는 http:// 또는 https:// 로 시작해야 합니다.");
+
+    lockUi(true);
+    urlObjectUrls.forEach((u) => URL.revokeObjectURL(u));
+    urlObjectUrls = [];
+
+    let stage = "COLLECT";
+    const notes = [];
+    try {
+      // 1) 이미지 주소 수집
+      setLoading("1/3단계: 이미지 주소 수집 중...", "상품 페이지에서 상세 이미지를 찾고 있습니다.");
+      let imageUrls = [];
+      let pageTitle = "";
+      for (const u of inputs) {
+        if (isImageUrl(u)) { imageUrls.push(u); continue; }
+        const res = await fetch(`${API_URL}/collect?url=${encodeURIComponent(u)}`);
+        let data;
+        try { data = await res.json(); } catch (e) { throw new Error("수집 응답을 해석하지 못했습니다. (HTTP " + res.status + ")"); }
+        if (!data.success) throw new Error(data.error || "페이지 수집 실패");
+        imageUrls.push(...data.images);
+        (data.notes || []).forEach((n) => notes.push(n));
+        if (!pageTitle && data.title) pageTitle = data.title;
+      }
+      imageUrls = [...new Set(imageUrls)];
+      if (imageUrls.length === 0) throw new Error(notes.join("\n") || "검수할 이미지를 찾지 못했습니다.");
+      if (imageUrls.length > MAX_URL_IMAGES) {
+        notes.push(`이미지가 ${imageUrls.length}장이라 앞의 ${MAX_URL_IMAGES}장만 검수했습니다.`);
+        imageUrls = imageUrls.slice(0, MAX_URL_IMAGES);
+      }
+
+      // 2) 이미지별 다운로드(프록시) + OCR
+      stage = "OCR";
+      const imgSrcs = [];       // 화면 표시용 (건너뛴 이미지 제외)
+      const srcUrls = [];       // 원본 주소 (표시용)
+      const imageLines = [];    // 이미지별 OCR 줄
+      let skipped = 0;
+
+      for (let i = 0; i < imageUrls.length; i++) {
+        const prefix = `이미지 ${i + 1}/${imageUrls.length} · `;
+        setLoading(`2/3단계: 이미지 OCR 진행 중 (${i + 1}/${imageUrls.length})`, `${prefix}이미지를 불러오는 중...`);
+
+        let blob;
+        try {
+          const r = await fetch(`${API_URL}/img?url=${encodeURIComponent(imageUrls[i])}`);
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          blob = await r.blob();
+        } catch (e) {
+          skipped++;
+          notes.push(`이미지를 불러오지 못해 건너뜀: ${imageUrls[i]}`);
+          continue;
+        }
+
+        let ocr;
+        try {
+          ocr = await runClientOCR(blob, 'URL', { minW: URL_MIN_W, prefix, noUpload: true, skipSmall: true });
+        } catch (e) {
+          skipped++;
+          notes.push(`OCR 실패로 건너뜀 (${e.message}): ${imageUrls[i]}`);
+          continue;
+        }
+        if (ocr.skipped) { skipped++; continue; }
+
+        const objUrl = URL.createObjectURL(blob);
+        urlObjectUrls.push(objUrl);
+        const idx = imgSrcs.length;
+        imgSrcs.push(objUrl);
+        srcUrls.push(imageUrls[i]);
+        imageLines.push(ocr.lines.map((l) => ({ ...l, img: idx })));
+      }
+
+      if (imgSrcs.length === 0) throw new Error("검수 가능한 이미지가 없습니다.\n" + notes.join("\n"));
+
+      // 3) 라벨/광고 구간 분리 후 서버 검수
+      stage = "SERVER";
+      setLoading("3/3단계: 규칙 검수 + 필요한 항목만 AI 확인 중...", "규칙으로 판정 가능한 항목은 AI를 호출하지 않습니다.");
+      const cls = classifyLines(imageLines);
+      const allLines = imageLines.flat();
+      if (allLines.length === 0) throw new Error("OCR로 읽어낸 텍스트가 없습니다. 이미지 해상도를 확인해 주세요.");
+      if (cls.labelImage < 0) notes.push("라벨(원재료명·영양성분 등) 영역을 찾지 못해 라벨 검수는 건너뛰고 광고 문구만 검수했습니다.");
+      else notes.push(`이미지 ${cls.labelImage + 1}에서 라벨 영역으로 추정되는 ${cls.labelLineCount}줄을 라벨 검수에 사용했습니다. (추정이므로 원본과 확인하세요)`);
+
+      const formData = new FormData();
+      formData.append("mode", "PAGE");
+      formData.append("tesseract_ocr", JSON.stringify(allLines));
+      const result = await postInspect(formData);
+
+      const area = document.getElementById('resultArea');
+      area.innerHTML = pageReportHtml(result, imgSrcs, { title: pageTitle, collected: imageUrls.length, skipped, notes });
+      bindAdInteractions(imgSrcs);
+      area.style.display = "block";
+    } catch (err) {
+      const label = stage === "COLLECT" ? "[수집 단계] " : (stage === "OCR" ? "[OCR 단계] " : "[서버 단계] ");
+      alert(label + err.message);
+    } finally {
+      lockUi(false);
     }
   }
 
   // ===================== 공통: 메타 박스 =====================
-  function renderMeta(meta) {
+  function renderMeta(meta, extraNotes) {
     if (!meta) return "";
     const parts = [];
     if (meta.cache_hit) parts.push("💾 캐시된 결과 (AI 호출 없음)");
     else parts.push(meta.ai_used ? `🤖 AI ${meta.ai_calls}회 호출` : "🆓 AI 호출 없음 (규칙 판정만 사용)");
-    if (typeof meta.line_count === "number") parts.push(`OCR ${meta.line_count}줄 · 평균 신뢰도 ${meta.avg_conf}%`);
+    if (typeof meta.line_count === "number") {
+      parts.push(typeof meta.avg_conf === "number" ? `OCR ${meta.line_count}줄 · 평균 신뢰도 ${meta.avg_conf}%` : `OCR ${meta.line_count}줄`);
+    }
     if (meta.ai_lines) parts.push(`AI 교정 대상 ${meta.ai_lines}줄`);
     let html = `<div class="meta-box">${esc(parts.join("  |  "))}`;
-    (meta.notes || []).forEach((n) => { html += `<div class="note">⚠️ ${esc(n)}</div>`; });
+    (meta.notes || []).concat(extraNotes || []).forEach((n) => { html += `<div class="note">⚠️ ${esc(n)}</div>`; });
     return html + `</div>`;
   }
 
-  // ===================== 광고 리포트 (문구 그룹핑) =====================
-  function renderAdReport(result) {
+  // ===================== 광고 리포트 =====================
+  function adSectionHtml(result, imgSrcs, title) {
     const rs = result.risk_summary;
     riskDetailsData = result.risk_details || [];
+    const multi = imgSrcs.length > 1;
 
     let html = `
-      <div class="card">
-        <h2 style="color:var(--primary); margin-top:0;">📢 표시·광고법 정밀 검수 리포트</h2>
-        <div style="background:#eff6ff; padding:10px; border-radius:6px; font-weight:bold; color:var(--primary); margin-bottom:15px; font-size:14px;">
-          ⚖️ ${esc(result.law_status || '식약처 고시 기준 적용')}
-        </div>
-        ${renderMeta(result.meta)}
-        <div class="summary-box">
-          <span class="badge high">상(무조건 수정): ${rs.high_count}건</span>
-          <span class="badge medium">중(수정 권장): ${rs.medium_count}건</span>
-          <span class="badge low">하(선택 참고): ${rs.low_count}건</span>
-          <span class="badge" style="background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;">총 ${rs.total_occurrences}곳에서 검출</span>
-        </div>
-        <p style="font-size:13px; color:var(--text-muted); margin-bottom:10px;">👉 위치 버튼(예: 12%)을 누르면 왼쪽 원본 이미지가 해당 위치로 이동합니다. 같은 문구는 한 번만 표시되고 위치만 모아서 보여줍니다.</p>
-        <hr style="border:0; border-top:1px solid #e5e7eb; margin:15px 0;">
-        <div class="ad-report-container">
-          <div class="ad-image-pane" id="adImagePane">
-            <div class="single-img-wrap" id="singleImgWrap">
-              <img src="${esc(uploadedImageSrc)}" id="targetAdImage" alt="광고 원본">
-              <div class="pin" id="pinLine"></div>
-            </div>
-          </div>
-          <div class="ad-details-pane">
+      <h2 class="section-title">${esc(title)}</h2>
+      <div style="background:#eff6ff; padding:10px; border-radius:6px; font-weight:bold; color:var(--primary); margin-bottom:15px; font-size:14px;">
+        ⚖️ ${esc(result.law_status || '식약처 고시 기준 적용')}
+      </div>
+      ${renderMeta(result.meta)}
+      <div class="summary-box">
+        <span class="badge high">상(무조건 수정): ${rs.high_count}건</span>
+        <span class="badge medium">중(수정 권장): ${rs.medium_count}건</span>
+        <span class="badge low">하(선택 참고): ${rs.low_count}건</span>
+        <span class="badge" style="background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;">총 ${rs.total_occurrences}곳에서 검출</span>
+      </div>
+      <p style="font-size:13px; color:var(--text-muted); margin-bottom:10px;">👉 위치 버튼을 누르면 왼쪽 원본 이미지가 해당 위치로 이동합니다. 같은 문구는 한 번만 표시되고 위치만 모아서 보여줍니다.</p>
+      <hr style="border:0; border-top:1px solid #e5e7eb; margin:15px 0;">
+      <div class="ad-report-container">
+        <div class="ad-image-pane" id="adImagePane">
     `;
+    imgSrcs.forEach((src, i) => {
+      if (multi) html += `<div class="img-caption">이미지 ${i + 1} / ${imgSrcs.length}</div>`;
+      html += `<div class="single-img-wrap" id="imgWrap_${i}"><img src="${esc(src)}" alt="원본 ${i + 1}"><div class="pin" id="pin_${i}"></div></div>`;
+    });
+    html += `</div><div class="ad-details-pane">`;
 
     if (riskDetailsData.length === 0) {
       html += `<p style="text-align:center; padding: 20px; font-weight:bold; color:#059669;">🎉 규칙에 해당하는 문구가 발견되지 않았습니다.</p>`;
@@ -433,7 +610,8 @@
         item.phrases.forEach((p) => {
           html += `<div class="phrase-row"><span class="phrase-text">"${esc(p.text)}"</span>${p.count > 1 ? `<span class="count-tag">${p.count}회 반복</span>` : ""}<div>`;
           p.positions.forEach((pos) => {
-            html += `<span class="chip" data-card="${index}" data-y="${pos}">📍 ${pos}%</span>`;
+            const label = multi ? `이미지 ${pos.img + 1} · ${pos.y}%` : `${pos.y}%`;
+            html += `<span class="chip" data-card="${index}" data-img="${pos.img}" data-y="${pos.y}">📍 ${label}</span>`;
           });
           html += `</div></div>`;
         });
@@ -443,38 +621,40 @@
         `;
       });
     }
+    html += `</div></div>`;
+    return html;
+  }
 
-    html += `</div></div></div>`;
+  function bindAdInteractions(imgSrcs) {
     const area = document.getElementById("resultArea");
-    area.innerHTML = html;
-
     area.querySelectorAll('.chip').forEach((chip) => {
-      chip.addEventListener('click', () => focusImageSection(Number(chip.dataset.card), Number(chip.dataset.y)));
+      chip.addEventListener('click', () => focusImageSection(Number(chip.dataset.card), Number(chip.dataset.img), Number(chip.dataset.y)));
     });
-
-    const img = document.getElementById('targetAdImage');
-    if (img && riskDetailsData.length > 0) {
+    if (riskDetailsData.length > 0) {
       const first = riskDetailsData[0].phrases[0].positions[0];
-      const go = () => focusImageSection(0, first);
-      if (img.complete) go(); else img.onload = go;
+      const img = document.querySelector(`#imgWrap_${first.img} img`);
+      const go = () => focusImageSection(0, first.img, first.y);
+      if (img) { if (img.complete) go(); else img.addEventListener('load', go, { once: true }); }
     }
   }
 
-  function focusImageSection(cardIndex, yPercent) {
+  function focusImageSection(cardIndex, imgIndex, yPercent) {
     const pane = document.getElementById('adImagePane');
-    const img = document.getElementById('targetAdImage');
-    const pin = document.getElementById('pinLine');
-    if (!img || !pane) return;
+    const wrap = document.getElementById(`imgWrap_${imgIndex}`);
+    const pin = document.getElementById(`pin_${imgIndex}`);
+    if (!pane || !wrap) return;
+    const img = wrap.querySelector('img');
 
     document.querySelectorAll('.risk-card').forEach((c) => c.classList.remove('active-focus'));
     const card = document.getElementById(`riskCard_${cardIndex}`);
     if (card) card.classList.add('active-focus');
+    document.querySelectorAll('.pin').forEach((p) => p.classList.remove('show'));
 
     const h = img.getBoundingClientRect().height;
     if (h > 0) {
       if (pin) { pin.style.top = `${yPercent}%`; pin.classList.add('show'); }
-      const target = h * (yPercent / 100) - pane.clientHeight / 2;
-      pane.scrollTo({ top: Math.max(0, target), behavior: 'smooth' });
+      const offset = wrap.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop;
+      pane.scrollTo({ top: Math.max(0, offset + h * (yPercent / 100) - pane.clientHeight / 2), behavior: 'smooth' });
     }
   }
 
@@ -485,18 +665,17 @@
     return `<span style="color:var(--text-muted);">비교 불가</span>`;
   }
 
-  function renderLabelReport(result) {
+  function labelSectionHtml(result, title) {
     let html = `
-      <div class="card">
-        <h2 style="color:var(--primary); margin-top:0;">🏷️ 한글표시사항 정밀 검수 리포트</h2>
-        <div style="background:#eff6ff; padding:10px; border-radius:6px; font-weight:bold; color:var(--primary); margin-bottom:15px; font-size:14px;">
-          ⚖️ ${esc(result.law_status || '식약처 고시 기준 적용')}
-        </div>
-        ${renderMeta(result.meta)}
-        <p><strong>총평:</strong> ${esc(result.summary)}</p>
-        <p><strong>제품명:</strong> ${esc(result.analyzed_summary.product_name)} | <strong>식품유형:</strong> ${esc(result.analyzed_summary.food_type)}</p>
-        <h3 style="margin-top:25px;">✅ 1. 법정 필수 표시항목 (확인됨)</h3>
-        <table><thead><tr><th width="25%">필수 항목명</th><th width="12%">상태</th><th>식별된 내용</th></tr></thead><tbody>
+      <h2 class="section-title">${esc(title)}</h2>
+      <div style="background:#eff6ff; padding:10px; border-radius:6px; font-weight:bold; color:var(--primary); margin-bottom:15px; font-size:14px;">
+        ⚖️ ${esc(result.law_status || '식약처 고시 기준 적용')}
+      </div>
+      ${renderMeta(result.meta)}
+      <p><strong>총평:</strong> ${esc(result.summary)}</p>
+      <p><strong>제품명:</strong> ${esc(result.analyzed_summary.product_name)} | <strong>식품유형:</strong> ${esc(result.analyzed_summary.food_type)}</p>
+      <h3 style="margin-top:25px;">✅ 1. 법정 필수 표시항목 (확인됨)</h3>
+      <table><thead><tr><th width="25%">필수 항목명</th><th width="12%">상태</th><th>식별된 내용</th></tr></thead><tbody>
     `;
     if (!result.passed_items || result.passed_items.length === 0) {
       html += `<tr><td colspan="3" style="text-align:center;">확인된 항목 없음</td></tr>`;
@@ -525,9 +704,30 @@
           <tr><td>소재지</td><td>${esc(d.doc_address || "-")}</td><td>${matchText(d.address_match)}</td></tr>
         </tbody></table>`;
     }
+    return html;
+  }
 
-    html += `</div>`;
-    document.getElementById("resultArea").innerHTML = html;
+  // ===================== URL 일괄 검수 리포트 =====================
+  function pageReportHtml(result, imgSrcs, info) {
+    const m = result.meta || {};
+    const summary = [
+      `이미지 ${info.collected}장 수집 → ${imgSrcs.length}장 검수${info.skipped ? ` (${info.skipped}장 건너뜀)` : ""}`,
+      m.ai_used ? `AI 총 ${m.ai_calls}회 호출` : "AI 호출 없음 (규칙 판정만 사용)",
+    ].join("  |  ");
+
+    let html = `
+      <div class="card">
+        <h2 class="section-title">🔗 URL 일괄 검수 리포트</h2>
+        ${info.title ? `<p style="margin:0 0 10px 0; font-weight:bold;">${esc(info.title)}</p>` : ""}
+        <div class="meta-box">${esc(summary)}`;
+    (info.notes || []).forEach((n) => { html += `<div class="note">⚠️ ${esc(n)}</div>`; });
+    html += `</div></div>`;
+
+    html += `<div class="card">${adSectionHtml(result.ad, imgSrcs, "📢 표시·광고 문구 검수")}</div>`;
+    if (result.label) {
+      html += `<div class="card">${labelSectionHtml(result.label, "🏷️ 한글표시사항 검수 (라벨 영역 추정 구간)")}</div>`;
+    }
+    return html;
   }
 </script>
 </body>
