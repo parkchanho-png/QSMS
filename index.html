@@ -64,6 +64,10 @@
     .meta-box .note { color: #b45309; font-weight: bold; margin-top: 4px; }
     .warn-box { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 10px 14px; margin-bottom: 10px; font-size: 14px; }
     .section-title { margin: 0 0 10px 0; color: var(--primary); }
+    .ai-badge { display: inline-block; margin-left: 6px; padding: 1px 8px; border-radius: 10px; font-size: 11px; font-weight: bold; background: #ede9fe; color: #6d28d9; border: 1px solid #ddd6fe; vertical-align: middle; }
+    .orig { margin-top: 4px; font-size: 12px; color: var(--text-muted); font-family: monospace; word-break: break-all; }
+    .diff-before { color: #b91c1c; text-decoration: line-through; word-break: break-all; }
+    .diff-after { color: #047857; font-weight: bold; word-break: break-all; }
 
     .ad-report-container { display: flex; gap: 24px; align-items: flex-start; margin-top: 20px; }
     .ad-image-pane { flex: 0 0 450px; position: sticky; top: 20px; background: #1e293b; border: 2px solid #334155; border-radius: 12px; padding: 10px; max-height: 80vh; overflow-y: auto; }
@@ -94,7 +98,7 @@
 
 <div class="container">
   <div class="header">
-    <h1>LabelGuard AI (v21)</h1>
+    <h1>LabelGuard AI (v22)</h1>
     <p>규칙 엔진 우선 + 필요할 때만 AI를 호출하는 하이브리드 검수 시스템</p>
   </div>
 
@@ -680,7 +684,11 @@
     if (!result.passed_items || result.passed_items.length === 0) {
       html += `<tr><td colspan="3" style="text-align:center;">확인된 항목 없음</td></tr>`;
     } else {
-      result.passed_items.forEach((i) => { html += `<tr><td>${esc(i.name)}</td><td class="status-pass">확인</td><td>${esc(i.detail)}</td></tr>`; });
+      result.passed_items.forEach((i) => {
+        const badge = i.refined ? `<span class="ai-badge">AI 정제</span>` : "";
+        const orig = (i.refined && i.original) ? `<div class="orig">OCR 원문: ${esc(i.original)}</div>` : "";
+        html += `<tr><td>${esc(i.name)}</td><td class="status-pass">확인</td><td>${esc(i.detail)}${badge}${orig}</td></tr>`;
+      });
     }
     html += `</tbody></table><h3>🚨 2. 필수항목 누락 / 미확인</h3><table><thead><tr><th width="20%">항목명</th><th width="30%">사유</th><th>조치 가이드</th></tr></thead><tbody>`;
     if (!result.failed_items || result.failed_items.length === 0) {
@@ -689,6 +697,15 @@
       result.failed_items.forEach((i) => { html += `<tr><td class="status-fail">${esc(i.item_name)}</td><td>${esc(i.issue_reason)}</td><td>${esc(i.how_to_improve)}</td></tr>`; });
     }
     html += `</tbody></table>`;
+
+    if (result.refinements && result.refinements.length > 0) {
+      html += `<h3>🤖 AI 정제 내역 (OCR 오류 · 한글/내용 불일치 수정)</h3>
+        <table><thead><tr><th width="18%">항목</th><th>정제 전 (OCR)</th><th>정제 후</th></tr></thead><tbody>`;
+      result.refinements.forEach((r) => {
+        html += `<tr><td>${esc(r.name)}</td><td class="diff-before">${esc(r.before)}</td><td class="diff-after">${esc(r.after)}</td></tr>`;
+      });
+      html += `</tbody></table>`;
+    }
 
     if (result.warnings && result.warnings.length > 0) {
       html += `<h3>⚠️ 3. 내용 점검 경고</h3>`;
