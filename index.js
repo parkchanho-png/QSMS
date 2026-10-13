@@ -1,5 +1,5 @@
 // =====================================================================
-// LabelGuard AI - Cloudflare Worker (v21)
+// LabelGuard AI - Cloudflare Worker (v22)
 // 구조: OCR(클라이언트) → 규칙 엔진(무료) → 필요한 줄만 AI → 그룹핑 → 캐시
 //
 // 엔드포인트
@@ -17,7 +17,7 @@
 //                            기본값: thebornmall.com, theborn.speedgabia.com
 // =====================================================================
 
-const RULES_VERSION = "2026-10-v2";
+const RULES_VERSION = "2026-10-v3";
 const CONF_TRUST = 75;
 const CONF_DEEP = 60;
 const MAX_AI_LINES = 40;
@@ -452,11 +452,13 @@ function extractLabelByRules(text) {
   out.business_name = pickField(text, ["제조원", "판매원", "영업소명칭", "수입원", "제조업소", "제조업체"]);
   out.address = pickField(text, ["소재지", "주소"], 150);
   out.expiration_date = pickField(text, ["소비기한", "유통기한", "품질유지기한"]);
-  out.net_weight = pickField(text, ["내용량", "중량"], 40);
+  const nw = text.match(new RegExp(fz("내용량") + "\\s*[:：]?\\s*(\\d[\\d,.]*\\s*(?:kg|g|ml|mL|L|㎖|ℓ|개|입)?)", "i"));
+  if (nw) out.net_weight = nw[1].trim();
   if (!out.net_weight) {
     const m = text.match(/\d[\d,.]*\s*(?:kg|g|ml|mL|L|㎖|ℓ)\b/);
     if (m) out.net_weight = m[0];
   }
+  if (!out.net_weight) out.net_weight = pickField(text, ["내용량", "중량"], 40);
   out.ingredients = pickBlock(text, ["원재료명", "원재료"], STOP_WORDS.filter((w) => w !== "원재료"), 400);
   out.nutrition = pickBlock(text, ["영양성분", "영양정보"], ["원재료", "포장재질", "주의사항", "보관방법"], 250);
   out.package_material = pickField(text, ["용기포장재질", "포장재질", "포장재"], 60);
@@ -500,44 +502,154 @@ function looselyMatches(a, b) {
   return common / Math.max(x.length, y.length) >= 0.8;
 }
 
+// ---- OCR 오류 사전 교정 (AI 호출 없이 무료로 먼저 적용) ----
+const OCR_FIXES = [
+  [/나트[률룸를]/g, "나트륨"],
+  [/탄수화[블불]/g, "탄수화물"],
+  [/팡유/g, "팜유"],
+  [/\bk[ec]a[l1]\b/gi, "kcal"],
+  [/지빙/g, "지방"],
+  [/콜레스[테태]롤/g, "콜레스테롤"],
+  [/식품유행/g, "식품유형"],
+];
+const applyOcrFixes = (s) => OCR_FIXES.reduce((acc, [re, to]) => acc.replace(re, to), s || "");
+
+// ---- 항목별 라벨 단어 (다른 항목 내용이 섞이면 잘라내기 위함) ----
+const FIELD_LABELS = {
+  product_name: ["제품명", "품명"],
+  food_type: ["식품유형", "식품의유형"],
+  business_name: ["제조원", "판매원", "유통전문판매원", "수입원", "영업소"],
+  address: ["소재지", "주소"],
+  expiration_date: ["소비기한", "유통기한", "품질유지기한"],
+  net_weight: ["내용량", "중량"],
+  ingredients: ["원재료명"],
+  nutrition: ["영양성분", "영양정보"],
+  package_material: ["용기포장재질", "포장재질"],
+  caution: ["주의사항", "보관방법"],
+};
+const EXTRA_LABELS = ["품목보고번호", "반품", "교환", "소비자상담", "총내용량당", "구입처", "영양정보"];
+const PAIR_KEYS = new Set(["business_name", "address"]); // 서로의 라벨이 섞여 나오는 쌍
+
+function cleanValue(key, value) {
+  let s = (value || "").replace(/^[\s|ㅣ_\-:·]+/, "");
+  const cut = [];
+  for (const k of Object.keys(FIELD_LABELS)) {
+    if (k === key) continue;
+    if (PAIR_KEYS.has(key) && PAIR_KEYS.has(k)) continue;
+    cut.push(...FIELD_LABELS[k]);
+  }
+  cut.push(...EXTRA_LABELS.filter((w) => !FIELD_LABELS[key].includes(w)));
+  const m = new RegExp(cut.map(fz).join("|")).exec(s);
+  if (m && m.index === 0) return ""; // 다른 항목 내용으로 시작 = 엉뚱한 위치에서 추출됨
+  if (m && m.index > 0) s = s.slice(0, m.index);
+  return s.replace(/[\s|ㅣ_\-:·]+$/, "").trim();
+}
+
+// 값이 비었거나 OCR 깨짐이 의심되면 AI 정제 대상
+function isSuspicious(key, v) {
+  if (!v) return true;
+  if (key === "net_weight" && !/\d[\d,.]*\s*(kg|g|ml|mL|L|㎖|ℓ|개|입)/i.test(v)) return true;
+  if (key === "expiration_date" && v.length < 2) return true;
+  if (key === "nutrition" && !/kcal|나트륨|탄수화물|당류|단백질|지방/i.test(v)) return true;
+  if ((key === "product_name" || key === "food_type") && /\s[A-Za-z]{1,3}\s*$/.test(v)) return true; // 끝에 붙은 OCR 잡음
+  if (/[ㄱ-ㅎㅏ-ㅣ]/.test(v)) return true; // 단독 자모(깨진 한글)
+  const odd = (v.match(/[^\uAC00-\uD7A3A-Za-z0-9\s%.,()\[\]{}:\/·\-~+*&]/g) || []).length;
+  return odd / Math.max(1, v.length) > 0.05;
+}
+
+// AI가 만든 값이 OCR 원문에 근거가 있는지(바이그램 겹침) 확인 → 지어내기 방지
+function bigramSet(s) {
+  const q = squash(s);
+  const set = new Set();
+  for (let i = 0; i < q.length - 1; i++) set.add(q.slice(i, i + 2));
+  return set;
+}
+function groundedIn(value, fullText) {
+  const v = bigramSet(value);
+  if (v.size === 0) return true;
+  const f = bigramSet(fullText);
+  let hit = 0;
+  v.forEach((b) => { if (f.has(b)) hit++; });
+  return hit / v.size >= 0.55;
+}
+
 async function handleLabel({ lines, deep, docFile, env, getImagePart, law }) {
   const notes = [];
   let aiCalls = 0;
-  const fullText = lines.map((l) => l.text).join("\n");
-  const label = extractLabelByRules(fullText);
+  const fullText = applyOcrFixes(lines.map((l) => l.text).join("\n"));
   const stats = ocrStats(lines);
 
-  let missing = LABEL_FIELDS.filter((f) => !label[f.key]);
+  // 1) 규칙 추출 + 무료 정리 (다른 항목 내용 잘라내기, 깨진 기호 제거)
+  const raw = extractLabelByRules(fullText);
+  const label = {};
+  LABEL_FIELDS.forEach((f) => { label[f.key] = cleanValue(f.key, raw[f.key]); });
+  if (!label.address && label.business_name) {
+    const addrs = label.business_name.match(/(?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주)[^\/]{6,90}/g);
+    if (addrs) label.address = addrs.map((a) => a.trim()).join(" / ");
+  }
 
-  const mergeAI = (out) => {
+  // 2) 비었거나 의심스러운 항목만 AI가 정제
+  const refinements = [];
+  const originals = {};
+  const nameOf = (key) => LABEL_FIELDS.find((f) => f.key === key).name;
+
+  const refine = async (targetKeys, withImage) => {
+    const current = {};
+    LABEL_FIELDS.forEach((f) => { current[f.key] = label[f.key] || ""; });
+    const prompt = `당신은 식약처 식품표시사항 심사 AI입니다.
+아래는 한글표시사항 라벨을 OCR로 읽은 원문과, 규칙으로 1차 추출한 항목값입니다. OCR 오류가 많습니다.
+[수정 대상 항목] ${targetKeys.join(", ")}
+[규칙]
+1. 수정 대상 항목만 고치세요. 나머지 항목은 응답에 넣지 마세요.
+2. 한국어 문맥에 맞지 않는 글자를 바로잡으세요. (예: 나트률→나트륨, 팡유→팜유, keal→kcal, 4709.→470g)
+3. 다른 항목의 내용이 섞여 있으면 해당 항목에 맞는 내용만 남기세요. (예: 영업소 명칭에 '총내용량당'이 붙어 있으면 제거)
+4. 깨진 기호와 불필요한 구분자를 제거하세요.
+5. 반드시 OCR 원문에 근거가 있는 내용만 사용하세요. 근거가 없으면 빈 문자열("")로 두세요. 추측·창작 금지.${withImage ? "\n6. 첨부된 원본 이미지를 직접 보고 대조하세요." : ""}
+[OCR 원문]
+${fullText.slice(0, 6000)}
+[1차 추출값]
+${JSON.stringify(current)}
+[응답 JSON]
+{ "label_data": { ${targetKeys.map((k) => `"${k}": "정제된 값"`).join(", ")} } }`;
+
+    const parts = [{ text: prompt }];
+    if (withImage && getImagePart) parts.push(await getImagePart());
+    const out = await callGeminiJSON(env, parts);
+    aiCalls++;
+
     const data = out.label_data || out;
-    for (const f of LABEL_FIELDS) {
-      const v = typeof data[f.key] === "string" ? data[f.key].trim() : "";
-      if (!label[f.key] && v && !/^(없음|누락|해당없음)$/.test(v)) label[f.key] = v;
+    for (const key of targetKeys) {
+      const v = typeof data[key] === "string" ? data[key].trim() : "";
+      if (!v || /^(없음|누락|해당없음)$/.test(v)) continue;
+      if (!groundedIn(v, fullText)) {
+        notes.push(`${nameOf(key)}: AI 정제값이 OCR 원문과 크게 달라 반영하지 않았습니다.`);
+        continue;
+      }
+      const before = label[key] || "";
+      if (v !== before) {
+        if (!(key in originals)) originals[key] = before;
+        label[key] = v;
+        refinements.push({ name: nameOf(key), before: before || "(읽지 못함)", after: v });
+      }
     }
   };
-  const buildPrompt = (withImage) => `당신은 식약처 식품표시사항 심사 AI입니다.
-아래 OCR 텍스트에서 다음 항목만 찾아 정확히 교정해 채우세요: ${missing.map((m) => m.key).join(", ")}
-라벨에 실제로 없는 항목은 반드시 빈 문자열("")로 두세요. 추측하지 마세요.${withImage ? "\n첨부된 원본 이미지를 직접 대조하세요." : ""}
-[OCR 텍스트]
-${fullText.slice(0, 6000)}
-[응답 JSON]
-{ "label_data": { ${missing.map((m) => `"${m.key}": ""`).join(", ")} } }`;
 
-  if (missing.length > 0) {
+  const targets = LABEL_FIELDS.filter((f) => isSuspicious(f.key, label[f.key])).map((f) => f.key);
+  if (targets.length > 0) {
     try {
-      mergeAI(await callGeminiJSON(env, [{ text: buildPrompt(false) }]));
-      aiCalls++;
+      await refine(targets, false);
     } catch (e) {
-      notes.push("AI 보완에 실패했습니다. (" + e.message + ")");
+      notes.push("AI 정제에 실패하여 OCR 정리 결과를 그대로 사용했습니다. (" + e.message + ")");
     }
-    missing = LABEL_FIELDS.filter((f) => !label[f.key]);
-    if (deep && getImagePart && missing.length > 0) {
-      try {
-        mergeAI(await callGeminiJSON(env, [{ text: buildPrompt(true) }, await getImagePart()]));
-        aiCalls++;
-      } catch (e) {
-        notes.push("이미지 기반 AI 재판독에 실패했습니다. (" + e.message + ")");
+    // 정밀 모드: 그래도 비어 있는 항목만 이미지까지 보고 재판독
+    if (deep && getImagePart) {
+      const still = LABEL_FIELDS.filter((f) => !label[f.key]).map((f) => f.key);
+      if (still.length > 0) {
+        try {
+          await refine(still, true);
+        } catch (e) {
+          notes.push("이미지 기반 AI 재판독에 실패했습니다. (" + e.message + ")");
+        }
       }
     }
   }
@@ -547,8 +659,13 @@ ${fullText.slice(0, 6000)}
   const passed = [];
   const failed = [];
   for (const f of LABEL_FIELDS) {
-    if (label[f.key]) passed.push({ name: f.name, detail: label[f.key] });
-    else failed.push({ item_name: f.name, issue_reason: `${f.name} 항목을 확인하지 못했습니다.`, how_to_improve: `${f.name}을(를) 라벨에 명시하거나, 이미지 해상도를 높여 다시 검수하세요.` });
+    if (label[f.key]) {
+      const item = { name: f.name, detail: label[f.key] };
+      if (f.key in originals) { item.refined = true; item.original = originals[f.key] || ""; }
+      passed.push(item);
+    } else {
+      failed.push({ item_name: f.name, issue_reason: `${f.name} 항목을 확인하지 못했습니다.`, how_to_improve: `${f.name}을(를) 라벨에 명시하거나, 이미지 해상도를 높여 다시 검수하세요.` });
+    }
   }
 
   const warnings = validateLabelContent(label, fullText);
@@ -576,11 +693,12 @@ ${fullText.slice(0, 6000)}
   return {
     inspect_mode: "LABEL",
     law_status: law.text,
-    summary: `필수 10개 항목 중 ${passed.length}개 확인, ${failed.length}개 미확인, 내용 경고 ${warnings.length}건`,
+    summary: `필수 10개 항목 중 ${passed.length}개 확인, ${failed.length}개 미확인, 내용 경고 ${warnings.length}건, AI 정제 ${refinements.length}건`,
     analyzed_summary: { product_name: label.product_name || "미확인", food_type: label.food_type || "미확인" },
     passed_items: passed,
     failed_items: failed,
     warnings,
+    refinements,
     doc_check: docCheck,
     meta: { ai_used: aiCalls > 0, ai_calls: aiCalls, ...stats, notes },
   };
